@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ShelfTalk — Reader Chats</title>
+    <script type="importmap">
+      {
+        "imports": {
+          "vue": "https://cdn.jsdelivr.net/npm/vue@3.5.32/dist/vue.esm-browser.js",
+          "vue-router": "https://cdn.jsdelivr.net/npm/vue-router@5.0.4/dist/vue-router.esm-browser.prod.js",
+          "@graffiti-garden/implementation-local": "https://cdn.jsdelivr.net/npm/@graffiti-garden/implementation-local@1.2.0/dist/browser/index.js",
+          "@graffiti-garden/implementation-decentralized": "https://cdn.jsdelivr.net/npm/@graffiti-garden/implementation-decentralized@0.0.9/dist/browser/index.js",
+          "@graffiti-garden/wrapper-vue": "https://cdn.jsdelivr.net/npm/@graffiti-garden/wrapper-vue@1.2.2/dist/browser/plugin.mjs"
+        }
+      }
+    </script>
+    <script src="main.js" type="module"></script>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to main content</a>
+    <!-- Exercise 1: replace the two href values with your separate chat-app GitHub repo and its GitHub Pages URL. -->
+    <footer class="hw-deliverable-footer" aria-label="Course deliverable links">
+      <a
+        href="https://github.com/YOUR_GITHUB_USERNAME/YOUR_CHAT_APP_REPO"
+        target="_blank"
+        rel="noopener noreferrer"
+        >Chat app source code (GitHub)</a>
+      <span aria-hidden="true"> · </span>
+      <a
+        href="https://aakaganov.github.io/"
+        target="_blank"
+        rel="noopener noreferrer"
+        >Chat app on GitHub Pages</a>
+    </footer>
+    <div id="app" class="app-root" role="status" aria-live="polite">Loading ShelfTalk…</div>
+
+    <template id="template">
+      <div class="layout">
+        <header class="top-bar">
+          <div class="brand">
+            <span class="brand-mark" aria-hidden="true">📚</span>
+            <div>
+              <div class="brand-title">
+                <router-link class="brand-link" to="/">ShelfTalk</router-link>
+              </div>
+              <div class="brand-tagline">Book-club chats with spoiler-aware messages</div>
+            </div>
+          </div>
+          <nav class="app-nav" aria-label="Primary">
+            <router-link class="nav-pill" to="/" exact-active-class="nav-pill-active">Home</router-link>
+            <router-link class="nav-pill" to="/about" active-class="nav-pill-active">About</router-link>
+          </nav>
+          <div class="session-actions">
+            <button
+              v-if="!$graffitiSession.value"
+              type="button"
+              class="btn btn-primary"
+              @click="$graffiti.login()"
+            >
+              Log in
+            </button>
+            <template v-else>
+              <span class="session-label">
+                Signed in as
+                <graffiti-actor-to-handle :actor="$graffitiSession.value.actor" />
+              </span>
+              <button
+                type="button"
+                class="btn btn-ghost"
+                @click="$graffiti.logout($graffitiSession.value)"
+              >
+                Log out
+              </button>
+            </template>
+          </div>
+        </header>
+
+        <div v-if="!$graffitiSession.value && $route.name !== 'about'" class="gate">
+          <p>
+            Log in to browse book clubs in
+            <code>{{ BOOK_CLUB_DIRECTORY }}</code>, open a room, and send spoiler-tagged notes
+            about what you are reading.
+          </p>
+          <p class="hint">
+            You can still read
+            <router-link to="/about">About ShelfTalk</router-link>
+            without signing in.
+          </p>
+        </div>
+
+        <main
+          v-else-if="!$graffitiSession.value && $route.name === 'about'"
+          id="main"
+          class="thread thread-standalone"
+          tabindex="-1"
+        >
+          <router-view></router-view>
+        </main>
+
+        <div v-else class="workspace">
+          <aside class="sidebar" aria-label="Book clubs and your reading list">
+            <section class="profile-panel" aria-labelledby="reading-heading">
+              <div class="panel-head">
+                <h2 id="reading-heading">Currently reading</h2>
+                <p class="hint">
+                  Saved to your profile channel
+                  <code class="code-tiny">{{ profileChannel }}</code>
+                  — visible to anyone who looks up your reader profile.
+                </p>
+              </div>
+
+              <div
+                v-if="profileError"
+                class="banner banner-error profile-banner"
+                role="alert"
+              >
+                <span>{{ profileError }}</span>
+                <button type="button" class="btn btn-ghost btn-tiny" @click="dismissProfileError">
+                  Dismiss
+                </button>
+              </div>
+
+              <div v-if="profilePollLoading" class="loading-block">
+                <span class="spinner" aria-hidden="true"></span>
+                <span>Loading your books…</span>
+              </div>
+              <ul v-else class="reading-list" role="list">
+                <li v-if="!myCurrentlyReading.length" class="empty">
+                  No books yet — add what you are reading below.
+                </li>
+                <li v-for="book of myCurrentlyReading" :key="book.url" class="reading-row">
+                  <div class="reading-main">
+                    <span class="reading-title">{{ book.value.title }}</span>
+                    <span v-if="book.value.isbn" class="reading-isbn">{{ book.value.isbn }}</span>
+                    <div
+                      v-if="book.value.totalPages > 0"
+                      class="reading-progress"
+                    >
+                      <span class="reading-stat">Current page: {{ book.value.currentPage ?? 0 }}</span>
+                      <span class="reading-stat">Total pages: {{ book.value.totalPages }}</span>
+                      <span
+                        class="progress-meter"
+                        role="img"
+                        :aria-label="`Progress: ${Math.min(100, Math.round(((book.value.currentPage ?? 0) / book.value.totalPages) * 100))} percent`"
+                      >
+                        <span
+                          class="progress-fill"
+                          :style="{
+                            width:
+                              Math.min(
+                                100,
+                                Math.round(
+                                  ((book.value.currentPage ?? 0) / book.value.totalPages) * 100,
+                                ),
+                              ) + '%',
+                          }"
+                        ></span>
+                      </span>
+                    </div>
+                    <div v-else-if="book.value.currentPage != null" class="reading-progress">
+                      <span class="reading-stat">Current page: {{ book.value.currentPage }}</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-tiny danger"
+                    @click="removeCurrentlyReadingBook(book)"
+                    :disabled="isRemovingBook.has(book.url)"
+                  >
+                    {{ isRemovingBook.has(book.url) ? "Removing…" : "Remove" }}
+                  </button>
+                </li>
+              </ul>
+
+              <form class="add-book-form" @submit.prevent="addCurrentlyReadingBook">
+                <span class="field-label">Add a book</span>
+                <label class="field">
+                  <span class="sr-only">Title</span>
+                  <input
+                    v-model="newBookTitle"
+                    type="text"
+                    name="book-title"
+                    autocomplete="off"
+                    placeholder="Title"
+                    maxlength="200"
+                    required
+                  />
+                </label>
+                <label class="field">
+                  <span class="sr-only">ISBN (optional)</span>
+                  <input
+                    v-model="newBookIsbn"
+                    type="text"
+                    name="book-isbn"
+                    autocomplete="off"
+                    placeholder="ISBN or ID (optional)"
+                    maxlength="32"
+                  />
+                </label>
+                <div class="inline-fields">
+                  <label class="field">
+                    <span class="field-label tiny">Current page</span>
+                    <input
+                      v-model="newBookCurrentPage"
+                      type="number"
+                      name="book-current-page"
+                      min="0"
+                      placeholder="—"
+                    />
+                  </label>
+                  <label class="field">
+                    <span class="field-label tiny">Total pages</span>
+                    <input
+                      v-model="newBookTotalPages"
+                      type="number"
+                      name="book-total-pages"
+                      min="0"
+                      placeholder="—"
+                    />
+                  </label>
+                </div>
+                <button
+                  type="submit"
+                  class="btn btn-primary"
+                  :disabled="!newBookTitle.trim() || isAddingBook"
+                >
+                  {{ isAddingBook ? "Adding…" : "Add to profile" }}
+                </button>
+              </form>
+            </section>
+
+            <div class="sidebar-divider" role="presentation"></div>
+
+            <div class="panel-head">
+              <h2>Book clubs</h2>
+              <p class="hint">Listed in the shared discovery channel for this prototype.</p>
+            </div>
+
+            <form class="create-club" @submit.prevent="createBookClub">
+              <label class="field">
+                <span class="field-label">Start a club</span>
+                <input
+                  v-model="newClubName"
+                  type="text"
+                  name="club-name"
+                  autocomplete="off"
+                  placeholder="e.g. April sci-fi picks"
+                  maxlength="80"
+                />
+              </label>
+              <button
+                type="submit"
+                class="btn btn-primary"
+                :disabled="!newClubName.trim() || isCreatingClub"
+              >
+                {{ isCreatingClub ? "Creating…" : "Create club" }}
+              </button>
+            </form>
+
+            <div
+              v-if="createClubError"
+              class="banner banner-error"
+              role="alert"
+            >
+              <span>{{ createClubError }}</span>
+              <button type="button" class="btn btn-ghost btn-tiny" @click="dismissCreateError">
+                Dismiss
+              </button>
+            </div>
+
+            <div v-if="clubsLoading" class="loading-block">
+              <span class="spinner" aria-hidden="true"></span>
+              <span>Loading clubs…</span>
+            </div>
+            <ul v-else class="club-list" role="list">
+              <li v-if="!sortedClubs.length" class="empty">No clubs yet — create the first one.</li>
+              <li v-for="club of sortedClubs" :key="club.url">
+                <router-link
+                  class="club-row"
+                  :class="{ active: $route.name === 'chat' && $route.params.chatId === club.value.channel }"
+                  :to="{ name: 'chat', params: { chatId: club.value.channel } }"
+                >
+                  <span class="club-name">{{ club.value.name }}</span>
+                  <span class="club-meta">Updated {{ new Date(club.value.published).toLocaleString() }}</span>
+                </router-link>
+              </li>
+            </ul>
+
+            <p class="fine-print">
+              <router-link to="/about">About</router-link>
+              ·
+              <a href="writeup.html">Design write-up</a>
+              · Spoiler reveal state is local to your browser (intermediate fidelity).
+            </p>
+          </aside>
+
+          <main id="main" class="thread" tabindex="-1">
+            <router-view></router-view>
+          </main>
+        </div>
+      </div>
+    </template>
+
+    <template id="tpl-home">
+      <div class="thread-empty">
+        <h2>Choose a club</h2>
+        <p>Select a book club on the left or create a new one to open its conversation.</p>
+        <p class="hint">Each club has its own URL you can bookmark or share, for example <code>#/chat/&lt;channel-id&gt;</code>.</p>
+      </div>
+    </template>
+
+    <template id="tpl-about">
+      <article class="about-page prose">
+        <h2>About ShelfTalk</h2>
+        <p>
+          ShelfTalk is a prototype book-club chat built on Graffiti: clubs are discovered in a shared directory,
+          each club’s messages live in a private channel, and readers can blur spoilers until others choose to reveal them.
+        </p>
+        <p>
+          Use <router-link to="/">Home</router-link> to pick a club. Each club opens at
+          <code>#/chat/&lt;channel-uuid&gt;</code>, so you can bookmark or share a specific room once you know its id.
+        </p>
+      </article>
+    </template>
+
+    <template id="tpl-chat">
+      <div class="thread-head">
+        <router-link class="btn btn-ghost back-link" to="/">← All clubs</router-link>
+        <div>
+          <h2>{{ threadHeadTitle }}</h2>
+          <p class="hint">
+            Messages live in this club’s private channel id
+            <code class="truncate" :title="$route.params.chatId">{{ $route.params.chatId }}</code>
+          </p>
+        </div>
+      </div>
+
+      <div
+        v-if="sendError || deleteError"
+        class="banner banner-error"
+        role="alert"
+      >
+        <span>{{ sendError || deleteError }}</span>
+        <button
+          type="button"
+          class="btn btn-ghost btn-tiny"
+          @click="sendError ? dismissSendError() : dismissDeleteError()"
+        >
+          Dismiss
+        </button>
+      </div>
+
+      <section class="messages" aria-label="Conversation">
+        <div v-if="isMessageThreadLoading" class="loading-block">
+          <span class="spinner" aria-hidden="true"></span>
+          <span>Loading messages…</span>
+        </div>
+        <ul v-else class="message-list" role="list">
+          <li v-if="!sortedMessages.length" class="empty">No messages yet — say hello.</li>
+          <li
+            v-for="msg of sortedMessages"
+            :key="msg.url"
+            class="message"
+            :class="{ mine: msg.actor === $graffitiSession.value?.actor }"
+          >
+            <div class="message-meta">
+              <graffiti-actor-to-handle :actor="msg.actor" />
+              <time :datetime="new Date(msg.value.published).toISOString()">
+                {{ new Date(msg.value.published).toLocaleString() }}
+              </time>
+            </div>
+            <div v-if="msg.value.contextBook" class="book-tag">
+              Re: <span>{{ msg.value.contextBook }}</span>
+            </div>
+            <div
+              class="bubble"
+              :class="{ blurred: msg.value.isBlurred && !revealedMessageUrls.has(msg.url) }"
+            >
+              <p v-if="msg.value.isBlurred" class="spoiler-label">
+                {{ msg.value.spoilerWarning || "Spoiler" }}
+              </p>
+              <p class="message-text">{{ msg.value.content }}</p>
+            </div>
+            <div class="message-actions">
+              <button
+                v-if="msg.value.isBlurred"
+                type="button"
+                class="btn btn-ghost btn-tiny"
+                @click="toggleReveal(msg.url)"
+              >
+                {{ revealedMessageUrls.has(msg.url) ? "Hide spoiler" : "Show spoiler" }}
+              </button>
+              <button
+                v-if="msg.actor === $graffitiSession.value?.actor"
+                type="button"
+                class="btn btn-ghost btn-tiny danger"
+                @click="deleteMessage(msg)"
+                :disabled="isDeleting.has(msg.url)"
+              >
+                {{ isDeleting.has(msg.url) ? "Removing…" : "Remove message" }}
+              </button>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <form class="composer" @submit.prevent="sendMessage">
+        <label class="field">
+          <span class="field-label">Message</span>
+          <textarea
+            v-model="myMessage"
+            rows="3"
+            name="message"
+            placeholder="Share a reaction, a theory, or a favorite line…"
+          ></textarea>
+        </label>
+        <label class="field">
+          <span class="field-label">Book context (optional)</span>
+          <input
+            v-model="contextBook"
+            type="text"
+            name="context-book"
+            placeholder="Title, ISBN, or shorthand (e.g. Project Hail Mary)"
+            maxlength="120"
+          />
+        </label>
+        <label class="checkbox">
+          <input v-model="markAsSpoiler" type="checkbox" />
+          Mark as spoiler (blurred for readers until they choose to reveal)
+        </label>
+        <label v-if="markAsSpoiler" class="field">
+          <span class="field-label">Spoiler label</span>
+          <input
+            v-model="spoilerWarning"
+            type="text"
+            name="spoiler-warning"
+            placeholder="e.g. Ending of Part Two"
+            maxlength="120"
+          />
+        </label>
+        <div class="composer-actions">
+          <button
+            type="submit"
+            class="btn btn-primary"
+            :disabled="!myMessage.trim() || isSending"
+          >
+            {{ isSending ? "Sending…" : "Send" }}
+          </button>
+          <span class="hint">You can remove your own messages if you sent something by mistake.</span>
+        </div>
+      </form>
+    </template>
+  </body>
+</html>
