@@ -49,6 +49,12 @@
           </div>
           <nav class="app-nav" aria-label="Primary">
             <router-link class="nav-pill" to="/" exact-active-class="nav-pill-active">Home</router-link>
+            <router-link
+              v-if="$graffitiSession.value"
+              class="nav-pill"
+              to="/dms"
+              active-class="nav-pill-active"
+              >Messages</router-link>
             <router-link class="nav-pill" to="/about" active-class="nav-pill-active">About</router-link>
           </nav>
           <div class="session-actions">
@@ -232,6 +238,16 @@
 
             <div class="sidebar-divider" role="presentation"></div>
 
+            <section class="dm-sidebar" aria-labelledby="dm-heading">
+              <div class="panel-head">
+                <h2 id="dm-heading">Direct messages</h2>
+                <p class="hint">Private thread with another reader—only the two of you share the channel.</p>
+              </div>
+              <router-link class="btn btn-primary dm-inbox-btn" to="/dms">Open message inbox</router-link>
+            </section>
+
+            <div class="sidebar-divider" role="presentation"></div>
+
             <div class="panel-head">
               <h2>Book clubs</h2>
               <p class="hint">Listed in the shared discovery channel for this prototype.</p>
@@ -359,7 +375,8 @@
         <ul v-else class="message-list" role="list">
           <li v-if="!sortedMessages.length" class="empty">No messages yet — say hello.</li>
           <template v-else>
-            <ChatMessage v-for="m of sortedMessages" :key="m.url" :msg="m" />
+            <!-- in-DOM template: kebab-case + explicit close (Vue DOM parsing caveats) -->
+            <chat-message v-for="m of sortedMessages" :key="m.url" :msg="m"></chat-message>
           </template>
         </ul>
       </section>
@@ -411,16 +428,154 @@
       </form>
     </template>
 
+    <template id="tpl-dms">
+      <div class="thread-head">
+        <router-link class="btn btn-ghost back-link" to="/">← Home</router-link>
+        <div>
+          <h2>Direct messages</h2>
+          <p class="hint">
+            Private threads with one other reader. Both of you read the same underlying channel, derived from your two
+            actor ids.
+          </p>
+        </div>
+      </div>
+
+      <section class="dm-inbox" aria-labelledby="dm-inbox-heading">
+        <h3 id="dm-inbox-heading" class="panel-subhead">Recent</h3>
+        <ul v-if="dmInboxRows.length" class="dm-inbox-list" role="list">
+          <li v-for="row in dmInboxRows" :key="row.peerActor">
+            <router-link
+              class="dm-inbox-row"
+              :to="{ name: 'dm', params: { peerKey: peerToKey(row.peerActor) } }"
+            >
+              <span class="dm-inbox-peer">
+                <graffiti-actor-to-handle :actor="row.peerActor" />
+              </span>
+              <span class="dm-inbox-meta">{{ new Date(row.updated).toLocaleString() }}</span>
+              <span v-if="row.lastPreview" class="dm-inbox-preview">{{ row.lastPreview }}</span>
+            </router-link>
+          </li>
+        </ul>
+        <p v-else class="thread-empty hint">
+          No saved threads yet. After you open or send a direct note, a row appears here (stored on your profile
+          channel).
+        </p>
+      </section>
+
+      <form class="dm-start-form" @submit.prevent="openNewDm">
+        <label class="field">
+          <span class="field-label">Start a new thread</span>
+          <textarea
+            v-model="newDmPeerInput"
+            rows="2"
+            name="dm-peer"
+            placeholder="Paste the other reader’s full Graffiti actor id"
+            maxlength="4000"
+          ></textarea>
+        </label>
+        <button type="submit" class="btn btn-primary" :disabled="!newDmPeerInput.trim()">Open thread</button>
+      </form>
+    </template>
+
+    <template id="tpl-dm">
+      <div class="thread-head">
+        <router-link class="btn btn-ghost back-link" to="/dms">← Inbox</router-link>
+        <div>
+          <h2>Direct message</h2>
+          <p v-if="!dmPeerInvalid && !dmSelfConversation && dmPeerActor" class="hint">
+            With <graffiti-actor-to-handle :actor="dmPeerActor" />
+          </p>
+          <p v-if="dmPeerInvalid" class="banner banner-error" role="alert">This link is not a valid conversation.</p>
+          <p v-if="dmSelfConversation" class="banner banner-error" role="alert">
+            You can’t message yourself. Return to the inbox to choose someone else.
+          </p>
+          <p v-if="!dmPeerInvalid && !dmSelfConversation && dmChannelPreview" class="hint code-tiny">
+            Shared channel <code class="truncate" :title="dmChannelPreview">{{ dmChannelPreview }}</code>
+          </p>
+        </div>
+      </div>
+
+      <div
+        v-if="!dmPeerInvalid && !dmSelfConversation && (sendError || deleteError)"
+        class="banner banner-error"
+        role="alert"
+      >
+        <span>{{ sendError || deleteError }}</span>
+        <button
+          type="button"
+          class="btn btn-ghost btn-tiny"
+          @click="sendError ? dismissSendError() : dismissDeleteError()"
+        >
+          Dismiss
+        </button>
+      </div>
+
+      <section v-if="!dmPeerInvalid && !dmSelfConversation" class="messages" aria-label="Direct conversation">
+        <div v-if="isMessageThreadLoading" class="loading-block">
+          <span class="spinner" aria-hidden="true"></span>
+          <span>Loading messages…</span>
+        </div>
+        <ul v-else class="message-list" role="list">
+          <li v-if="!sortedMessages.length" class="empty">No messages yet — say hello.</li>
+          <template v-else>
+            <chat-message v-for="m of sortedMessages" :key="m.url" :msg="m"></chat-message>
+          </template>
+        </ul>
+      </section>
+
+      <form
+        v-if="!dmPeerInvalid && !dmSelfConversation"
+        class="composer"
+        @submit.prevent="sendMessage"
+      >
+        <label class="field">
+          <span class="field-label">Message</span>
+          <textarea
+            v-model="myMessage"
+            rows="3"
+            name="dm-message"
+            placeholder="Write a private note…"
+          ></textarea>
+        </label>
+        <label class="checkbox">
+          <input v-model="markAsSpoiler" type="checkbox" />
+          Mark as spoiler (blurred until they reveal)
+        </label>
+        <label v-if="markAsSpoiler" class="field">
+          <span class="field-label">Spoiler label</span>
+          <input
+            v-model="spoilerWarning"
+            type="text"
+            name="dm-spoiler-warning"
+            placeholder="e.g. Personal news"
+            maxlength="120"
+          />
+        </label>
+        <div class="composer-actions">
+          <button type="submit" class="btn btn-primary" :disabled="!myMessage.trim() || isSending">
+            {{ isSending ? "Sending…" : "Send" }}
+          </button>
+        </div>
+      </form>
+    </template>
+
     <template id="tpl-message-row">
       <li
         class="message"
         :class="{ mine: msg.actor === $graffitiSession.value?.actor }"
       >
-        <div class="message-meta">
-          <graffiti-actor-to-handle :actor="msg.actor" />
-          <time :datetime="new Date(msg.value.published).toISOString()">
-            {{ new Date(msg.value.published).toLocaleString() }}
-          </time>
+        <div class="message-meta message-meta-row">
+          <div class="message-meta-main">
+            <graffiti-actor-to-handle :actor="msg.actor" />
+            <time :datetime="new Date(msg.value.published).toISOString()">
+              {{ new Date(msg.value.published).toLocaleString() }}
+            </time>
+          </div>
+          <router-link
+            v-if="msg.actor && msg.actor !== $graffitiSession.value?.actor"
+            class="btn btn-ghost btn-tiny dm-peer-link"
+            :to="{ name: 'dm', params: { peerKey: peerToKey(msg.actor) } }"
+            >Message privately</router-link>
         </div>
         <div v-if="msg.value.contextBook" class="book-tag">
           Re: <span>{{ msg.value.contextBook }}</span>

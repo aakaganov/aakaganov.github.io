@@ -19,6 +19,13 @@ const router = createRouter({
       component: loadComponent("chat"),
       props: true,
     },
+    { path: "/dms", name: "dms", component: loadComponent("dms") },
+    {
+      path: "/dm/:peerKey",
+      name: "dm",
+      component: loadComponent("dm"),
+      props: true,
+    },
   ],
 });
 

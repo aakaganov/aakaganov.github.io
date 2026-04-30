@@ -1,6 +1,7 @@
 import { ref, computed, watch } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { useGraffiti, useGraffitiSession, useGraffitiDiscover } from "@graffiti-garden/wrapper-vue";
+import { directMessageChannelId, peerToKey, keyToPeer } from "./directMessage.js";
 
 /** Shared directory for book club listings (Part A "where" for discovery). */
 export const BOOK_CLUB_DIRECTORY = "bookclub-discovery";
@@ -55,21 +56,71 @@ const currentlyReadingSchema = {
   },
 };
 
+const dmThreadIndexSchema = {
+  properties: {
+    value: {
+      required: ["type", "peerActor", "updated"],
+      properties: {
+        type: { const: "DMThreadIndex" },
+        peerActor: { type: "string" },
+        updated: { type: "number" },
+        lastPreview: { type: "string" },
+      },
+    },
+  },
+};
+
 export function useShelfTalk() {
   const graffiti = useGraffiti();
   const session = useGraffitiSession();
   const route = useRoute();
+  const router = useRouter();
 
-  const activeChatChannel = computed(() => {
+  /** Book-club thread channel when on <code>/chat/:chatId</code>. */
+  const activeClubChannel = computed(() => {
     if (route.name === "chat" && route.params.chatId) {
       return String(route.params.chatId);
     }
     return null;
   });
 
-  const selectedMessageChannel = computed(
-    () => activeChatChannel.value ?? IDLE_MESSAGE_CHANNEL,
+  /** Kept as alias for club-only logic (sidebar active state, club metadata). */
+  const activeChatChannel = activeClubChannel;
+
+  const dmPeerActor = computed(() => {
+    if (route.name !== "dm" || route.params.peerKey == null) return null;
+    try {
+      const peer = keyToPeer(String(route.params.peerKey));
+      return peer.trim() ? peer : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const dmPeerInvalid = computed(
+    () => route.name === "dm" && Boolean(route.params.peerKey) && dmPeerActor.value == null,
   );
+
+  const dmSelfConversation = computed(
+    () =>
+      route.name === "dm" &&
+      dmPeerActor.value != null &&
+      session.value?.actor != null &&
+      dmPeerActor.value === session.value.actor,
+  );
+
+  const selectedMessageChannel = computed(() => {
+    if (activeClubChannel.value) return activeClubChannel.value;
+    if (
+      route.name === "dm" &&
+      dmPeerActor.value &&
+      session.value?.actor &&
+      dmPeerActor.value !== session.value.actor
+    ) {
+      return directMessageChannelId(session.value.actor, dmPeerActor.value);
+    }
+    return IDLE_MESSAGE_CHANNEL;
+  });
 
   const newClubName = ref("");
   const isCreatingClub = ref(false);
@@ -88,7 +139,7 @@ export function useShelfTalk() {
   const revealedMessageUrls = ref(new Set());
 
   watch(
-    () => [route.name, route.params.chatId],
+    () => [route.name, route.params.chatId, route.params.peerKey],
     () => {
       revealedMessageUrls.value = new Set();
     },
@@ -114,6 +165,13 @@ export function useShelfTalk() {
       undefined,
       true,
     );
+
+  const { objects: rawDmIndexObjects } = useGraffitiDiscover(
+    () => [profileChannel.value],
+    dmThreadIndexSchema,
+    undefined,
+    true,
+  );
 
   const myCurrentlyReading = computed(() => {
     const actor = session.value?.actor;
@@ -142,15 +200,80 @@ export function useShelfTalk() {
   );
 
   const clubForActiveChat = computed(() => {
-    const ch = activeChatChannel.value;
+    const ch = activeClubChannel.value;
     if (!ch) return null;
     return sortedClubs.value.find((c) => c.value.channel === ch) ?? null;
   });
 
   const threadHeadTitle = computed(() => {
-    if (!activeChatChannel.value) return "";
+    if (!activeClubChannel.value) return "";
     return clubForActiveChat.value?.value?.name ?? "Book club chat";
   });
+
+  const dmChannelPreview = computed(() => {
+    if (route.name !== "dm" || !dmPeerActor.value || !session.value?.actor) return "";
+    if (dmPeerActor.value === session.value.actor) return "";
+    return directMessageChannelId(session.value.actor, dmPeerActor.value);
+  });
+
+  const dmInboxRows = computed(() => {
+    const actor = session.value?.actor;
+    if (!actor) return [];
+    const best = new Map();
+    for (const o of rawDmIndexObjects.value) {
+      if (o.actor !== actor || o.value?.type !== "DMThreadIndex") continue;
+      const peer = o.value.peerActor;
+      if (typeof peer !== "string" || !peer) continue;
+      const updated = o.value.updated ?? 0;
+      const cur = best.get(peer);
+      if (!cur || updated >= cur.updated) {
+        best.set(peer, {
+          peerActor: peer,
+          updated,
+          lastPreview: typeof o.value.lastPreview === "string" ? o.value.lastPreview : "",
+        });
+      }
+    }
+    return [...best.values()].toSorted((a, b) => b.updated - a.updated);
+  });
+
+  const newDmPeerInput = ref("");
+
+  function openNewDm() {
+    const raw = newDmPeerInput.value.trim();
+    if (!raw) return;
+    router.push({ name: "dm", params: { peerKey: peerToKey(raw) } });
+    newDmPeerInput.value = "";
+  }
+
+  async function recordDmThread(peerActor, previewSnippet) {
+    if (!session.value?.actor || !peerActor || peerActor === session.value.actor) return;
+    try {
+      await graffiti.post(
+        {
+          value: {
+            type: "DMThreadIndex",
+            peerActor,
+            updated: Date.now(),
+            lastPreview: String(previewSnippet ?? "").slice(0, 200),
+          },
+          channels: [profileChannel.value],
+        },
+        session.value,
+      );
+    } catch {
+      /* inbox index is best-effort */
+    }
+  }
+
+  watch(
+    () => [route.name, dmPeerActor.value, session.value?.actor],
+    ([name, peer, self]) => {
+      if (name === "dm" && peer && self && peer !== self) {
+        void recordDmThread(peer, "");
+      }
+    },
+  );
 
   const { objects: rawMessages, isFirstPoll: messagesLoading } = useGraffitiDiscover(
     () => [selectedMessageChannel.value],
@@ -168,8 +291,14 @@ export function useShelfTalk() {
     );
   });
 
+  const messageThreadActive = computed(
+    () =>
+      activeClubChannel.value != null ||
+      (route.name === "dm" && dmPeerActor.value != null && !dmSelfConversation.value),
+  );
+
   const isMessageThreadLoading = computed(
-    () => activeChatChannel.value != null && messagesLoading.value,
+    () => messageThreadActive.value && messagesLoading.value,
   );
 
   function dismissProfileError() {
@@ -283,8 +412,8 @@ export function useShelfTalk() {
 
   async function sendMessage() {
     const text = myMessage.value.trim();
-    const channel = activeChatChannel.value;
-    if (!text || !session.value || !channel) return;
+    const channel = selectedMessageChannel.value;
+    if (!text || !session.value || !channel || channel === IDLE_MESSAGE_CHANNEL) return;
     sendError.value = "";
     isSending.value = true;
     try {
@@ -312,6 +441,9 @@ export function useShelfTalk() {
       myMessage.value = "";
       spoilerWarning.value = "";
       markAsSpoiler.value = false;
+      if (route.name === "dm" && dmPeerActor.value) {
+        await recordDmThread(dmPeerActor.value, text);
+      }
     } catch (e) {
       sendError.value =
         e instanceof Error ? e.message : "Message could not be sent. Try again.";
@@ -353,6 +485,15 @@ export function useShelfTalk() {
     profileChannel,
     session,
     activeChatChannel,
+    activeClubChannel,
+    dmPeerActor,
+    dmPeerInvalid,
+    dmSelfConversation,
+    dmInboxRows,
+    newDmPeerInput,
+    openNewDm,
+    peerToKey,
+    dmChannelPreview,
     clubForActiveChat,
     threadHeadTitle,
     sortedClubs,
