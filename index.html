@@ -20,10 +20,9 @@
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to main content</a>
-    <!-- Exercise 1: replace the two href values with your separate chat-app GitHub repo and its GitHub Pages URL. -->
     <footer class="hw-deliverable-footer" aria-label="Course deliverable links">
       <a
-        href="https://github.com/YOUR_GITHUB_USERNAME/YOUR_CHAT_APP_REPO"
+        href="https://github.com/aakaganov/aakaganov.github.io.git"
         target="_blank"
         rel="noopener noreferrer"
         >Chat app source code (GitHub)</a>
@@ -359,50 +358,9 @@
         </div>
         <ul v-else class="message-list" role="list">
           <li v-if="!sortedMessages.length" class="empty">No messages yet — say hello.</li>
-          <li
-            v-for="msg of sortedMessages"
-            :key="msg.url"
-            class="message"
-            :class="{ mine: msg.actor === $graffitiSession.value?.actor }"
-          >
-            <div class="message-meta">
-              <graffiti-actor-to-handle :actor="msg.actor" />
-              <time :datetime="new Date(msg.value.published).toISOString()">
-                {{ new Date(msg.value.published).toLocaleString() }}
-              </time>
-            </div>
-            <div v-if="msg.value.contextBook" class="book-tag">
-              Re: <span>{{ msg.value.contextBook }}</span>
-            </div>
-            <div
-              class="bubble"
-              :class="{ blurred: msg.value.isBlurred && !revealedMessageUrls.has(msg.url) }"
-            >
-              <p v-if="msg.value.isBlurred" class="spoiler-label">
-                {{ msg.value.spoilerWarning || "Spoiler" }}
-              </p>
-              <p class="message-text">{{ msg.value.content }}</p>
-            </div>
-            <div class="message-actions">
-              <button
-                v-if="msg.value.isBlurred"
-                type="button"
-                class="btn btn-ghost btn-tiny"
-                @click="toggleReveal(msg.url)"
-              >
-                {{ revealedMessageUrls.has(msg.url) ? "Hide spoiler" : "Show spoiler" }}
-              </button>
-              <button
-                v-if="msg.actor === $graffitiSession.value?.actor"
-                type="button"
-                class="btn btn-ghost btn-tiny danger"
-                @click="deleteMessage(msg)"
-                :disabled="isDeleting.has(msg.url)"
-              >
-                {{ isDeleting.has(msg.url) ? "Removing…" : "Remove message" }}
-              </button>
-            </div>
-          </li>
+          <template v-else>
+            <ChatMessage v-for="m of sortedMessages" :key="m.url" :msg="m" />
+          </template>
         </ul>
       </section>
 
@@ -451,6 +409,51 @@
           <span class="hint">You can remove your own messages if you sent something by mistake.</span>
         </div>
       </form>
+    </template>
+
+    <template id="tpl-message-row">
+      <li
+        class="message"
+        :class="{ mine: msg.actor === $graffitiSession.value?.actor }"
+      >
+        <div class="message-meta">
+          <graffiti-actor-to-handle :actor="msg.actor" />
+          <time :datetime="new Date(msg.value.published).toISOString()">
+            {{ new Date(msg.value.published).toLocaleString() }}
+          </time>
+        </div>
+        <div v-if="msg.value.contextBook" class="book-tag">
+          Re: <span>{{ msg.value.contextBook }}</span>
+        </div>
+        <div
+          class="bubble"
+          :class="{ blurred: msg.value.isBlurred && !revealedMessageUrls.has(msg.url) }"
+        >
+          <p v-if="msg.value.isBlurred" class="spoiler-label">
+            {{ msg.value.spoilerWarning || "Spoiler" }}
+          </p>
+          <p class="message-text">{{ msg.value.content }}</p>
+        </div>
+        <div class="message-actions">
+          <button
+            v-if="msg.value.isBlurred"
+            type="button"
+            class="btn btn-ghost btn-tiny"
+            @click="toggleReveal(msg.url)"
+          >
+            {{ revealedMessageUrls.has(msg.url) ? "Hide spoiler" : "Show spoiler" }}
+          </button>
+          <button
+            v-if="msg.actor === $graffitiSession.value?.actor"
+            type="button"
+            class="btn btn-ghost btn-tiny danger"
+            @click="deleteMessage(msg)"
+            :disabled="isDeleting.has(msg.url)"
+          >
+            {{ isDeleting.has(msg.url) ? "Removing…" : "Remove message" }}
+          </button>
+        </div>
+      </li>
     </template>
   </body>
 </html>
