@@ -13,6 +13,7 @@ const router = createRouter({
   routes: [
     { path: "/", name: "home", component: loadComponent("home") },
     { path: "/about", name: "about", component: loadComponent("about") },
+    { path: "/books", name: "books", component: loadComponent("books") },
     {
       path: "/chat/:chatId",
       name: "chat",
@@ -32,6 +33,7 @@ const router = createRouter({
       component: loadComponent("reader"),
       props: true,
     },
+    { path: "/channel", name: "channel", component: loadComponent("channel") },
   ],
 });
 

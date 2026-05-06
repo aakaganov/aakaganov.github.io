@@ -1,4 +1,4 @@
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useGraffiti, useGraffitiSession, useGraffitiDiscover } from "@graffiti-garden/wrapper-vue";
 import { directMessageChannelId, peerToKey, keyToPeer } from "./directMessage.js";
@@ -40,6 +40,8 @@ const noteMessageSchema = {
         contextBook: { type: "string" },
         isBlurred: { type: "boolean" },
         spoilerWarning: { type: "string" },
+        spoilerPage: { type: "number" },
+        spoilerProgress: { type: "number" },
       },
     },
   },
@@ -72,6 +74,20 @@ const dmThreadIndexSchema = {
         peerActor: { type: "string" },
         updated: { type: "number" },
         lastPreview: { type: "string" },
+      },
+    },
+  },
+};
+
+const clubMembershipSchema = {
+  properties: {
+    value: {
+      required: ["type", "activity", "channel", "published"],
+      properties: {
+        type: { const: "ClubMembership" },
+        activity: { type: "string" },
+        channel: { type: "string" },
+        published: { type: "number" },
       },
     },
   },
@@ -185,6 +201,8 @@ export function useShelfTalk() {
   });
 
   const newClubName = ref("");
+  const clubSearchQuery = ref("");
+  const showCreateClubForm = ref(false);
   const isCreatingClub = ref(false);
   const createClubError = ref("");
   const clubSettingsName = ref("");
@@ -192,20 +210,26 @@ export function useShelfTalk() {
   const clubSettingsNextMeetingLocation = ref("");
   const clubSettingsAllowedGenres = ref("");
   const clubSettingsNextBook = ref("");
+  const showClubSettingsPanel = ref(true);
   const showClubSettingsEditor = ref(false);
   const clubSettingsError = ref("");
   const isSavingClubSettings = ref(false);
   const isDeletingClub = ref(false);
+  const isUpdatingMembership = ref(new Set());
+  const channelInfoCopyFeedback = ref("");
 
   const myMessage = ref("");
   const contextBook = ref("");
   const markAsSpoiler = ref(false);
   const spoilerWarning = ref("");
+  const spoilerPage = ref("");
+  const spoilerProgressPercent = ref("");
   const isSending = ref(false);
   const sendError = ref("");
 
   const isDeleting = ref(new Set());
   const deleteError = ref("");
+  const messageViewportRef = ref(null);
 
   const revealedMessageUrls = ref(new Set());
 
@@ -230,6 +254,7 @@ export function useShelfTalk() {
   const newBookIsbn = ref("");
   const newBookCurrentPage = ref("");
   const newBookTotalPages = ref("");
+  const showAddBookForm = ref(false);
   const isAddingBook = ref(false);
   const profileError = ref("");
   const isRemovingBook = ref(new Set());
@@ -247,6 +272,13 @@ export function useShelfTalk() {
   const { objects: rawDmIndexObjects } = useGraffitiDiscover(
     () => [profileChannel.value],
     dmThreadIndexSchema,
+    undefined,
+    true,
+  );
+
+  const { objects: rawMembershipObjects } = useGraffitiDiscover(
+    () => [profileChannel.value],
+    clubMembershipSchema,
     undefined,
     true,
   );
@@ -329,6 +361,41 @@ export function useShelfTalk() {
     return [...byChannel.values()].toSorted((a, b) => (b.value.published ?? 0) - (a.value.published ?? 0));
   });
 
+  const myClubMembershipByChannel = computed(() => {
+    const actor = session.value?.actor;
+    const latest = new Map();
+    if (!actor) return latest;
+    const events = rawMembershipObjects.value
+      .filter((o) => o.actor === actor && o.value?.type === "ClubMembership")
+      .toSorted((a, b) => (a.value.published ?? 0) - (b.value.published ?? 0));
+    for (const e of events) {
+      const channel = String(e.value?.channel ?? "");
+      if (!channel) continue;
+      latest.set(channel, e.value?.activity === "Join");
+    }
+    return latest;
+  });
+
+  function isMemberOfClub(channel) {
+    const channelId = String(channel ?? "");
+    if (!channelId) return false;
+    const club = sortedClubs.value.find((c) => c.value?.channel === channelId);
+    if (club && session.value?.actor && club.value?.ownerActor === session.value.actor) {
+      return true;
+    }
+    return myClubMembershipByChannel.value.get(channelId) === true;
+  }
+
+  const filteredClubs = computed(() => {
+    const query = clubSearchQuery.value.trim().toLowerCase();
+    if (!query) return sortedClubs.value;
+    return sortedClubs.value.filter((club) => club.value.name.toLowerCase().includes(query));
+  });
+
+  const activeClubRequiresJoin = computed(
+    () => activeClubChannel.value != null && !isMemberOfClub(activeClubChannel.value),
+  );
+
   const clubForActiveChat = computed(() => {
     const ch = activeClubChannel.value;
     if (!ch) return null;
@@ -366,6 +433,21 @@ export function useShelfTalk() {
       nextBook: value.nextBook ?? "",
     };
   });
+
+  function normalizeClubName(name) {
+    return String(name ?? "")
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, " ");
+  }
+
+  function isClubNameTaken(name, excludeChannel = null) {
+    const key = normalizeClubName(name);
+    if (!key) return false;
+    return sortedClubs.value.some(
+      (club) => normalizeClubName(club.value?.name) === key && club.value?.channel !== excludeChannel,
+    );
+  }
 
   const dmChannelPreview = computed(() => {
     if (route.name !== "dm" || !dmPeerActor.value || !session.value?.actor) return "";
@@ -458,6 +540,28 @@ export function useShelfTalk() {
     () => messageThreadActive.value && messagesLoading.value,
   );
 
+  function scrollMessagesToLatest() {
+    const el = messageViewportRef.value;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }
+
+  watch(
+    () => [route.name, route.params.chatId, route.params.peerKey],
+    async () => {
+      await nextTick();
+      scrollMessagesToLatest();
+    },
+  );
+
+  watch(
+    () => sortedMessages.value.length,
+    async () => {
+      await nextTick();
+      scrollMessagesToLatest();
+    },
+  );
+
   function dismissProfileError() {
     profileError.value = "";
   }
@@ -470,6 +574,41 @@ export function useShelfTalk() {
   function parseDraftPage(value) {
     const parsed = parseInt(String(value ?? "").trim(), 10);
     return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function normalizeIsbn(raw) {
+    return String(raw ?? "")
+      .toUpperCase()
+      .replace(/[^0-9X]/g, "");
+  }
+
+  function isValidIsbn10(isbn) {
+    if (!/^\d{9}[\dX]$/.test(isbn)) return false;
+    let sum = 0;
+    for (let i = 0; i < 9; i++) {
+      sum += (i + 1) * Number(isbn[i]);
+    }
+    const checksumChar = isbn[9];
+    const checksum = checksumChar === "X" ? 10 : Number(checksumChar);
+    sum += 10 * checksum;
+    return sum % 11 === 0;
+  }
+
+  function isValidIsbn13(isbn) {
+    if (!/^\d{13}$/.test(isbn)) return false;
+    let sum = 0;
+    for (let i = 0; i < 12; i++) {
+      const digit = Number(isbn[i]);
+      sum += i % 2 === 0 ? digit : digit * 3;
+    }
+    const checkDigit = (10 - (sum % 10)) % 10;
+    return checkDigit === Number(isbn[12]);
+  }
+
+  function isValidIsbn(raw) {
+    const normalized = normalizeIsbn(raw);
+    if (!normalized) return true;
+    return isValidIsbn10(normalized) || isValidIsbn13(normalized);
   }
 
   function setBookPageDraft(url, value) {
@@ -585,6 +724,10 @@ export function useShelfTalk() {
       profileError.value = "Current page cannot be greater than total pages.";
       return;
     }
+    if (!isValidIsbn(newBookIsbn.value)) {
+      profileError.value = "ISBN must be a valid ISBN-10 or ISBN-13.";
+      return;
+    }
     isAddingBook.value = true;
     try {
       const value = {
@@ -594,7 +737,7 @@ export function useShelfTalk() {
         statusUpdatedAt: Date.now(),
         published: Date.now(),
       };
-      const isbn = newBookIsbn.value.trim();
+      const isbn = normalizeIsbn(newBookIsbn.value);
       if (isbn) value.isbn = isbn;
       if (Number.isFinite(currentPage)) value.currentPage = currentPage;
       if (Number.isFinite(totalPages)) value.totalPages = totalPages;
@@ -609,6 +752,7 @@ export function useShelfTalk() {
       newBookIsbn.value = "";
       newBookCurrentPage.value = "";
       newBookTotalPages.value = "";
+      showAddBookForm.value = false;
     } catch (e) {
       profileError.value =
         e instanceof Error ? e.message : "Could not add this book to your profile.";
@@ -619,6 +763,9 @@ export function useShelfTalk() {
 
   async function removeCurrentlyReadingBook(entry) {
     if (!session.value || entry.actor !== session.value.actor) return;
+    const title = String(entry?.value?.title ?? "this book");
+    const confirmed = confirm(`Remove "${title}" from your profile?`);
+    if (!confirmed) return;
     profileError.value = "";
     const next = new Set(isRemovingBook.value);
     next.add(entry.url);
@@ -638,8 +785,13 @@ export function useShelfTalk() {
   async function createBookClub() {
     const name = newClubName.value.trim();
     if (!name || !session.value) return;
+    if (isClubNameTaken(name)) {
+      createClubError.value = "A club with this title already exists. Choose a unique title.";
+      return;
+    }
     createClubError.value = "";
     isCreatingClub.value = true;
+    const channel = crypto.randomUUID();
     try {
       await graffiti.post(
         {
@@ -647,7 +799,7 @@ export function useShelfTalk() {
             activity: "Create",
             type: "BookClub",
             name,
-            channel: crypto.randomUUID(),
+            channel,
             ownerActor: session.value.actor,
             nextMeetingAt: "",
             nextMeetingLocation: "",
@@ -659,7 +811,20 @@ export function useShelfTalk() {
         },
         session.value,
       );
+      await graffiti.post(
+        {
+          value: {
+            type: "ClubMembership",
+            activity: "Join",
+            channel,
+            published: Date.now(),
+          },
+          channels: [profileChannel.value],
+        },
+        session.value,
+      );
       newClubName.value = "";
+      showCreateClubForm.value = false;
     } catch (e) {
       createClubError.value =
         e instanceof Error ? e.message : "Could not create this book club.";
@@ -696,12 +861,22 @@ export function useShelfTalk() {
     }
     clubSettingsError.value = "";
   }
+  function toggleClubSettingsPanel() {
+    showClubSettingsPanel.value = !showClubSettingsPanel.value;
+    if (!showClubSettingsPanel.value) {
+      showClubSettingsEditor.value = false;
+    }
+  }
 
   async function saveActiveClubSettings() {
     if (!session.value || !clubForActiveChat.value || !userCanManageActiveClub.value) return;
     const name = clubSettingsName.value.trim();
     if (!name) {
       clubSettingsError.value = "Club name cannot be empty.";
+      return;
+    }
+    if (isClubNameTaken(name, clubForActiveChat.value.value.channel)) {
+      clubSettingsError.value = "A club with this title already exists. Choose a unique title.";
       return;
     }
     clubSettingsError.value = "";
@@ -760,11 +935,104 @@ export function useShelfTalk() {
     }
   }
 
+  async function joinClub(channel) {
+    if (!session.value || !channel) return;
+    createClubError.value = "";
+    const next = new Set(isUpdatingMembership.value);
+    next.add(channel);
+    isUpdatingMembership.value = next;
+    try {
+      await graffiti.post(
+        {
+          value: {
+            type: "ClubMembership",
+            activity: "Join",
+            channel,
+            published: Date.now(),
+          },
+          channels: [profileChannel.value],
+        },
+        session.value,
+      );
+      if (route.name !== "chat" || route.params.chatId !== channel) {
+        await router.push({ name: "chat", params: { chatId: channel } });
+      }
+    } catch (e) {
+      createClubError.value = e instanceof Error ? e.message : "Could not join this club.";
+    } finally {
+      const done = new Set(isUpdatingMembership.value);
+      done.delete(channel);
+      isUpdatingMembership.value = done;
+    }
+  }
+
+  async function leaveActiveClub() {
+    const channel = activeClubChannel.value;
+    if (!session.value || !channel) return;
+    const club = sortedClubs.value.find((c) => c.value?.channel === channel);
+    if (club?.value?.ownerActor === session.value.actor) {
+      clubSettingsError.value = "Owners cannot leave their own club.";
+      return;
+    }
+    const confirmed = confirm("Leave this book club? You can rejoin later from the clubs list.");
+    if (!confirmed) return;
+    clubSettingsError.value = "";
+    const pending = new Set(isUpdatingMembership.value);
+    pending.add(channel);
+    isUpdatingMembership.value = pending;
+    try {
+      await graffiti.post(
+        {
+          value: {
+            type: "ClubMembership",
+            activity: "Leave",
+            channel,
+            published: Date.now(),
+          },
+          channels: [profileChannel.value],
+        },
+        session.value,
+      );
+      await router.push({ name: "home" });
+    } catch (e) {
+      clubSettingsError.value = e instanceof Error ? e.message : "Could not leave this club.";
+    } finally {
+      const done = new Set(isUpdatingMembership.value);
+      done.delete(channel);
+      isUpdatingMembership.value = done;
+    }
+  }
+
   function toggleReveal(url) {
     const next = new Set(revealedMessageUrls.value);
     if (next.has(url)) next.delete(url);
     else next.add(url);
     revealedMessageUrls.value = next;
+  }
+
+  function spoilerRevealInfo(msg) {
+    if (!msg?.value?.isBlurred) return "";
+    const parts = [];
+    const warning = String(msg.value.spoilerWarning ?? "").trim();
+    if (warning) parts.push(`Warning: ${warning}`);
+    if (Number.isFinite(msg.value?.spoilerPage)) {
+      parts.push(`Spoiler threshold page: ${msg.value.spoilerPage}`);
+    }
+    if (Number.isFinite(msg.value?.spoilerProgress)) {
+      parts.push(`Spoiler threshold progress: ${Math.round(msg.value.spoilerProgress * 100)}%`);
+    }
+    return parts.join("\n");
+  }
+
+  function toggleRevealWithAlert(msg) {
+    const isCurrentlyHidden = !revealedMessageUrls.value.has(msg.url);
+    if (isCurrentlyHidden) {
+      const info = spoilerRevealInfo(msg);
+      if (info) {
+        alert(`Spoiler info:\n${info}`);
+      }
+    }
+    toggleReveal(msg.url);
   }
 
   async function sendMessage() {
@@ -784,6 +1052,17 @@ export function useShelfTalk() {
       if (markAsSpoiler.value) {
         value.isBlurred = true;
         value.spoilerWarning = spoilerWarning.value.trim() || "Spoiler";
+        const parsedSpoilerPage = parseInt(String(spoilerPage.value).trim(), 10);
+        const parsedSpoilerProgress = parseFloat(String(spoilerProgressPercent.value).trim());
+        if (Number.isFinite(parsedSpoilerPage) && parsedSpoilerPage > 0) {
+          value.spoilerPage = parsedSpoilerPage;
+        }
+        if (Number.isFinite(parsedSpoilerProgress) && parsedSpoilerProgress >= 0 && parsedSpoilerProgress <= 100) {
+          value.spoilerProgress = parsedSpoilerProgress / 100;
+        } else if (String(spoilerProgressPercent.value).trim()) {
+          sendError.value = "Spoiler progress must be between 0 and 100 percent.";
+          return;
+        }
       } else {
         value.isBlurred = false;
         value.spoilerWarning = "";
@@ -797,6 +1076,8 @@ export function useShelfTalk() {
       );
       myMessage.value = "";
       spoilerWarning.value = "";
+      spoilerPage.value = "";
+      spoilerProgressPercent.value = "";
       markAsSpoiler.value = false;
       if (route.name === "dm" && dmPeerActor.value) {
         await recordDmThread(dmPeerActor.value, text);
@@ -830,6 +1111,23 @@ export function useShelfTalk() {
   function dismissCreateError() {
     createClubError.value = "";
   }
+  function toggleAddBookForm() {
+    showAddBookForm.value = !showAddBookForm.value;
+    if (!showAddBookForm.value) {
+      newBookTitle.value = "";
+      newBookIsbn.value = "";
+      newBookCurrentPage.value = "";
+      newBookTotalPages.value = "";
+      profileError.value = "";
+    }
+  }
+  function toggleCreateClubForm() {
+    showCreateClubForm.value = !showCreateClubForm.value;
+    if (!showCreateClubForm.value) {
+      newClubName.value = "";
+      createClubError.value = "";
+    }
+  }
   function dismissSendError() {
     sendError.value = "";
   }
@@ -838,6 +1136,89 @@ export function useShelfTalk() {
   }
   function dismissClubSettingsError() {
     clubSettingsError.value = "";
+  }
+  function goBackOr(fallbackRoute) {
+    if (window.history.length > 1) {
+      router.back();
+      return;
+    }
+    if (fallbackRoute) {
+      void router.push(fallbackRoute);
+    }
+  }
+
+  function channelInfoRoute(channelId, label, context = "") {
+    return {
+      name: "channel",
+      query: {
+        id: String(channelId ?? ""),
+        label: String(label ?? "Channel"),
+        context: String(context ?? ""),
+      },
+    };
+  }
+
+  async function copyChannelInfoId(channelId) {
+    const raw = String(channelId ?? "").trim();
+    if (!raw) return;
+    channelInfoCopyFeedback.value = "";
+    try {
+      if (!navigator?.clipboard?.writeText) {
+        throw new Error("Clipboard API unavailable.");
+      }
+      await navigator.clipboard.writeText(raw);
+      channelInfoCopyFeedback.value = "Channel id copied.";
+    } catch {
+      channelInfoCopyFeedback.value = "Could not copy channel id on this device.";
+    }
+  }
+
+  function normalizeBookLookupKey(raw) {
+    return String(raw ?? "")
+      .toLowerCase()
+      .trim()
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .replace(/\s+/g, " ");
+  }
+
+  const myBookProgressByKey = computed(() => {
+    const best = new Map();
+    for (const entry of myCurrentlyReading.value) {
+      const currentPage = Number.isFinite(entry.value?.currentPage) ? entry.value.currentPage : null;
+      if (currentPage == null || currentPage < 0) continue;
+      const totalPages = Number.isFinite(entry.value?.totalPages) ? entry.value.totalPages : null;
+      const candidates = [entry.value?.title, entry.value?.isbn];
+      for (const c of candidates) {
+        const key = normalizeBookLookupKey(c);
+        if (!key) continue;
+        const prev = best.get(key);
+        if (!prev || currentPage >= prev.currentPage) {
+          best.set(key, { currentPage, totalPages });
+        }
+      }
+    }
+    return best;
+  });
+
+  function shouldAutoRevealSpoiler(msg) {
+    if (!msg?.value?.isBlurred) return false;
+    const spoilerPageThreshold = Number.isFinite(msg.value?.spoilerPage) ? msg.value.spoilerPage : null;
+    const spoilerProgressThreshold = Number.isFinite(msg.value?.spoilerProgress) ? msg.value.spoilerProgress : null;
+    if (spoilerPageThreshold == null && spoilerProgressThreshold == null) return false;
+    const lookupKey = normalizeBookLookupKey(msg.value?.contextBook);
+    if (!lookupKey) return false;
+    const progress = myBookProgressByKey.value.get(lookupKey);
+    if (!progress) return false;
+    if (spoilerPageThreshold != null && progress.currentPage >= spoilerPageThreshold) return true;
+    if (
+      spoilerProgressThreshold != null &&
+      Number.isFinite(progress.totalPages) &&
+      progress.totalPages > 0 &&
+      progress.currentPage / progress.totalPages >= spoilerProgressThreshold
+    ) {
+      return true;
+    }
+    return false;
   }
 
   return {
@@ -865,30 +1246,44 @@ export function useShelfTalk() {
     activeClubOwnerActor,
     userCanManageActiveClub,
     activeClubSettings,
+    activeClubRequiresJoin,
     sortedClubs,
+    filteredClubs,
     clubsLoading,
+    clubSearchQuery,
     newClubName,
+    showCreateClubForm,
     isCreatingClub,
     createClubError,
+    toggleCreateClubForm,
     createBookClub,
+    isUpdatingMembership,
+    isMemberOfClub,
+    joinClub,
+    leaveActiveClub,
     clubSettingsName,
     clubSettingsNextMeetingAt,
     clubSettingsNextMeetingLocation,
     clubSettingsAllowedGenres,
     clubSettingsNextBook,
+    showClubSettingsPanel,
     showClubSettingsEditor,
     clubSettingsError,
     isSavingClubSettings,
     isDeletingClub,
+    toggleClubSettingsPanel,
     toggleClubSettingsEditor,
     saveActiveClubSettings,
     deleteActiveClub,
     sortedMessages,
     isMessageThreadLoading,
+    messageViewportRef,
     myMessage,
     contextBook,
     markAsSpoiler,
     spoilerWarning,
+    spoilerPage,
+    spoilerProgressPercent,
     isSending,
     sendMessage,
     sendError,
@@ -897,10 +1292,16 @@ export function useShelfTalk() {
     deleteError,
     revealedMessageUrls,
     toggleReveal,
+    toggleRevealWithAlert,
     dismissCreateError,
     dismissSendError,
     dismissDeleteError,
     dismissClubSettingsError,
+    goBackOr,
+    channelInfoRoute,
+    copyChannelInfoId,
+    channelInfoCopyFeedback,
+    shouldAutoRevealSpoiler,
     profilePollLoading,
     myCurrentlyReading,
     myBooksByStatus,
@@ -908,6 +1309,7 @@ export function useShelfTalk() {
     newBookIsbn,
     newBookCurrentPage,
     newBookTotalPages,
+    showAddBookForm,
     isAddingBook,
     profileError,
     isRemovingBook,
@@ -917,6 +1319,7 @@ export function useShelfTalk() {
     splitBooksByStatus,
     ensureBookPageDraft,
     setBookPageDraft,
+    toggleAddBookForm,
     addCurrentlyReadingBook,
     removeCurrentlyReadingBook,
     updateCurrentPage,

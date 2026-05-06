@@ -110,10 +110,14 @@
               <div class="panel-head">
                 <h2 id="reading-heading">Currently reading</h2>
                 <p class="hint">
-                  Saved to your profile channel
-                  <code class="code-tiny">{{ profileChannel }}</code>
+                  Saved to your
+                  <router-link
+                    :to="channelInfoRoute(profileChannel, 'Profile channel', 'Stores your currently-reading list and DM index')"
+                    >profile channel</router-link
+                  >
                   — visible to anyone who looks up your reader profile.
                 </p>
+                <router-link class="btn btn-ghost btn-tiny" :to="{ name: 'books' }">Open bookshelf page</router-link>
               </div>
 
               <div
@@ -313,8 +317,15 @@
                 </section>
               </div>
 
-              <form class="add-book-form" @submit.prevent="addCurrentlyReadingBook">
-                <span class="field-label">Add a book</span>
+              <button
+                type="button"
+                class="btn btn-ghost btn-tiny"
+                @click="toggleAddBookForm"
+              >
+                {{ showAddBookForm ? "Close add book form" : "Add a book" }}
+              </button>
+
+              <form v-if="showAddBookForm" class="add-book-form" @submit.prevent="addCurrentlyReadingBook">
                 <label class="field">
                   <span class="sr-only">Title</span>
                   <input
@@ -387,7 +398,26 @@
               <p class="hint">Listed in the shared discovery channel for this prototype.</p>
             </div>
 
-            <form class="create-club" @submit.prevent="createBookClub">
+            <label class="field">
+              <span class="field-label">Search clubs</span>
+              <input
+                v-model="clubSearchQuery"
+                type="search"
+                name="club-search"
+                autocomplete="off"
+                placeholder="Search by title"
+              />
+            </label>
+
+            <button
+              type="button"
+              class="btn btn-ghost btn-tiny"
+              @click="toggleCreateClubForm"
+            >
+              {{ showCreateClubForm ? "Close create club form" : "Create a club" }}
+            </button>
+
+            <form v-if="showCreateClubForm" class="create-club" @submit.prevent="createBookClub">
               <label class="field">
                 <span class="field-label">Start a club</span>
                 <input
@@ -424,16 +454,27 @@
               <span>Loading clubs…</span>
             </div>
             <ul v-else class="club-list" role="list">
-              <li v-if="!sortedClubs.length" class="empty">No clubs yet — create the first one.</li>
-              <li v-for="club of sortedClubs" :key="club.url">
-                <router-link
+              <li v-if="!filteredClubs.length" class="empty">No matching clubs found.</li>
+              <li v-for="club of filteredClubs" :key="club.url">
+                <div
                   class="club-row"
                   :class="{ active: $route.name === 'chat' && $route.params.chatId === club.value.channel }"
-                  :to="{ name: 'chat', params: { chatId: club.value.channel } }"
                 >
-                  <span class="club-name">{{ club.value.name }}</span>
-                  <span class="club-meta">Updated {{ new Date(club.value.published).toLocaleString() }}</span>
-                </router-link>
+                  <router-link class="club-row-link" :to="{ name: 'chat', params: { chatId: club.value.channel } }">
+                    <span class="club-name">{{ club.value.name }}</span>
+                    <span class="club-meta">Updated {{ new Date(club.value.published).toLocaleString() }}</span>
+                  </router-link>
+                  <button
+                    v-if="!isMemberOfClub(club.value.channel)"
+                    type="button"
+                    class="btn btn-ghost btn-tiny"
+                    :disabled="isUpdatingMembership.has(club.value.channel)"
+                    @click="joinClub(club.value.channel)"
+                  >
+                    {{ isUpdatingMembership.has(club.value.channel) ? "Joining…" : "Join" }}
+                  </button>
+                  <span v-else class="club-member-pill">Member</span>
+                </div>
               </li>
             </ul>
 
@@ -474,14 +515,81 @@
       </article>
     </template>
 
+    <template id="tpl-books">
+      <div class="thread-head">
+        <div class="thread-head-actions">
+          <button type="button" class="btn btn-ghost back-link" @click="goBackOr({ name: 'home' })">Back</button>
+          <router-link class="btn btn-ghost btn-tiny" to="/">Home</router-link>
+        </div>
+        <div>
+          <h2>Bookshelf</h2>
+          <p class="hint">Full-page view for easier browsing when your reading lists get long.</p>
+        </div>
+      </div>
+
+      <div v-if="profilePollLoading" class="loading-block">
+        <span class="spinner" aria-hidden="true"></span>
+        <span>Loading your books…</span>
+      </div>
+      <div v-else class="profile-status-sections">
+        <section class="profile-status-section">
+          <h3 class="panel-subhead">Currently reading</h3>
+          <ul class="reading-list bookshelf-list" role="list">
+            <li v-if="!myBooksByStatus.reading.length" class="empty">No books in this section.</li>
+            <li v-for="book of myBooksByStatus.reading" :key="book.url" class="reading-row">
+              <div class="reading-main">
+                <span class="reading-title">{{ book.value.title }}</span>
+                <span v-if="book.value.isbn" class="reading-isbn">{{ book.value.isbn }}</span>
+                <span class="reading-status-pill status-reading">Reading</span>
+              </div>
+            </li>
+          </ul>
+        </section>
+
+        <section class="profile-status-section">
+          <h3 class="panel-subhead">Finished</h3>
+          <ul class="reading-list bookshelf-list" role="list">
+            <li v-if="!myBooksByStatus.finished.length" class="empty">No books in this section.</li>
+            <li v-for="book of myBooksByStatus.finished" :key="book.url" class="reading-row">
+              <div class="reading-main">
+                <span class="reading-title">{{ book.value.title }}</span>
+                <span v-if="book.value.isbn" class="reading-isbn">{{ book.value.isbn }}</span>
+                <span class="reading-status-pill status-finished">Finished</span>
+              </div>
+            </li>
+          </ul>
+        </section>
+
+        <section class="profile-status-section">
+          <h3 class="panel-subhead">DNF</h3>
+          <ul class="reading-list bookshelf-list" role="list">
+            <li v-if="!myBooksByStatus.dnf.length" class="empty">No books in this section.</li>
+            <li v-for="book of myBooksByStatus.dnf" :key="book.url" class="reading-row">
+              <div class="reading-main">
+                <span class="reading-title">{{ book.value.title }}</span>
+                <span v-if="book.value.isbn" class="reading-isbn">{{ book.value.isbn }}</span>
+                <span class="reading-status-pill status-dnf">DNF</span>
+              </div>
+            </li>
+          </ul>
+        </section>
+      </div>
+    </template>
+
     <template id="tpl-chat">
       <div class="thread-head">
-        <router-link class="btn btn-ghost back-link" to="/">← All clubs</router-link>
+        <div class="thread-head-actions">
+          <button type="button" class="btn btn-ghost back-link" @click="goBackOr({ name: 'home' })">Back</button>
+          <router-link class="btn btn-ghost btn-tiny" to="/">Clubs</router-link>
+        </div>
         <div>
           <h2>{{ threadHeadTitle }}</h2>
           <p class="hint">
-            Messages live in this club’s private channel id
-            <code class="truncate" :title="$route.params.chatId">{{ $route.params.chatId }}</code>
+            Messages live in this
+            <router-link
+              :to="channelInfoRoute($route.params.chatId, 'Private club channel', 'Contains this club chat thread')"
+              >private channel</router-link
+            >.
           </p>
           <p v-if="activeClubOwnerActor" class="hint">
             Owner:
@@ -491,7 +599,13 @@
       </div>
 
       <section v-if="clubForActiveChat" class="club-settings-panel" aria-labelledby="club-settings-heading">
-        <h3 id="club-settings-heading" class="panel-subhead">Club settings</h3>
+        <div class="club-settings-header">
+          <h3 id="club-settings-heading" class="panel-subhead">Club settings</h3>
+          <button type="button" class="btn btn-ghost btn-tiny" @click="toggleClubSettingsPanel">
+            {{ showClubSettingsPanel ? "Hide settings" : "Show settings" }}
+          </button>
+        </div>
+        <template v-if="showClubSettingsPanel">
         <dl class="club-settings-display">
           <div>
             <dt>Next meeting</dt>
@@ -599,7 +713,32 @@
             </button>
           </div>
         </form>
+        </template>
       </section>
+
+      <div v-if="activeClubRequiresJoin" class="banner" role="alert">
+        <span>You must join this club before viewing its messages.</span>
+        <button
+          type="button"
+          class="btn btn-ghost btn-tiny"
+          :disabled="isUpdatingMembership.has($route.params.chatId)"
+          @click="joinClub($route.params.chatId)"
+        >
+          {{ isUpdatingMembership.has($route.params.chatId) ? "Joining…" : "Join club" }}
+        </button>
+      </div>
+
+      <div v-if="!activeClubRequiresJoin" class="club-membership-actions">
+        <button
+          v-if="!userCanManageActiveClub"
+          type="button"
+          class="btn btn-ghost btn-tiny danger"
+          :disabled="isUpdatingMembership.has($route.params.chatId)"
+          @click="leaveActiveClub"
+        >
+          {{ isUpdatingMembership.has($route.params.chatId) ? "Leaving…" : "Leave club" }}
+        </button>
+      </div>
 
       <div
         v-if="sendError || deleteError || clubSettingsError"
@@ -622,7 +761,7 @@
         </button>
       </div>
 
-      <section class="messages" aria-label="Conversation">
+      <section v-if="!activeClubRequiresJoin" class="messages" aria-label="Conversation" ref="messageViewportRef">
         <div v-if="isMessageThreadLoading" class="loading-block">
           <span class="spinner" aria-hidden="true"></span>
           <span>Loading messages…</span>
@@ -636,7 +775,7 @@
         </ul>
       </section>
 
-      <form class="composer" @submit.prevent="sendMessage">
+      <form v-if="!activeClubRequiresJoin" class="composer" @submit.prevent="sendMessage">
         <label class="field">
           <span class="field-label">Message</span>
           <textarea
@@ -670,6 +809,30 @@
             maxlength="120"
           />
         </label>
+        <div v-if="markAsSpoiler" class="inline-fields">
+          <label class="field">
+            <span class="field-label tiny">Spoiler after page (optional)</span>
+            <input
+              v-model="spoilerPage"
+              type="number"
+              min="1"
+              name="spoiler-page-threshold"
+              placeholder="e.g. 220"
+            />
+          </label>
+          <label class="field">
+            <span class="field-label tiny">Or after progress % (optional)</span>
+            <input
+              v-model="spoilerProgressPercent"
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              name="spoiler-progress-threshold"
+              placeholder="e.g. 60"
+            />
+          </label>
+        </div>
         <div class="composer-actions">
           <button
             type="submit"
@@ -685,16 +848,26 @@
 
     <template id="tpl-reader">
       <div class="thread-head">
-        <router-link class="btn btn-ghost back-link" to="/">← Home</router-link>
+        <div class="thread-head-actions">
+          <button type="button" class="btn btn-ghost back-link" @click="goBackOr({ name: 'home' })">Back</button>
+          <router-link class="btn btn-ghost btn-tiny" to="/">Home</router-link>
+        </div>
         <div>
           <h2>Reader profile</h2>
           <p v-if="!readerProfileInvalid && readerProfilePeerActor" class="hint reader-profile-intro">
             <graffiti-actor-to-handle :actor="readerProfilePeerActor" />
             <template v-if="readerProfileDiscoverChannel && readerProfileDiscoverChannel !== profileChannel">
-              — books saved on
-              <code class="code-tiny truncate" :title="readerProfileDiscoverChannel">{{
-                readerProfileDiscoverChannel
-              }}</code>
+              — books saved on their
+              <router-link
+                :to="
+                  channelInfoRoute(
+                    readerProfileDiscoverChannel,
+                    'Reader profile channel',
+                    'Stores this reader\\'s shared book profile',
+                  )
+                "
+                >profile channel</router-link
+              >
             </template>
           </p>
           <p v-if="readerProfileInvalid" class="banner banner-error" role="alert">
@@ -863,7 +1036,10 @@
 
     <template id="tpl-dm">
       <div class="thread-head">
-        <router-link class="btn btn-ghost back-link" to="/dms">← Inbox</router-link>
+        <div class="thread-head-actions">
+          <button type="button" class="btn btn-ghost back-link" @click="goBackOr({ name: 'dms' })">Back</button>
+          <router-link class="btn btn-ghost btn-tiny" to="/dms">Inbox</router-link>
+        </div>
         <div>
           <h2>Direct message</h2>
           <p v-if="!dmPeerInvalid && !dmSelfConversation && dmPeerActor" class="hint">
@@ -880,7 +1056,11 @@
             You can’t message yourself. Return to the inbox to choose someone else.
           </p>
           <p v-if="!dmPeerInvalid && !dmSelfConversation && dmChannelPreview" class="hint code-tiny">
-            Shared channel <code class="truncate" :title="dmChannelPreview">{{ dmChannelPreview }}</code>
+            Shared
+            <router-link
+              :to="channelInfoRoute(dmChannelPreview, 'Shared DM channel', 'Contains direct messages for this pair of readers')"
+              >DM channel</router-link
+            >
           </p>
         </div>
       </div>
@@ -900,7 +1080,12 @@
         </button>
       </div>
 
-      <section v-if="!dmPeerInvalid && !dmSelfConversation" class="messages" aria-label="Direct conversation">
+      <section
+        v-if="!dmPeerInvalid && !dmSelfConversation"
+        class="messages"
+        aria-label="Direct conversation"
+        ref="messageViewportRef"
+      >
         <div v-if="isMessageThreadLoading" class="loading-block">
           <span class="spinner" aria-hidden="true"></span>
           <span>Loading messages…</span>
@@ -941,12 +1126,61 @@
             maxlength="120"
           />
         </label>
+        <div v-if="markAsSpoiler" class="inline-fields">
+          <label class="field">
+            <span class="field-label tiny">Spoiler after page (optional)</span>
+            <input
+              v-model="spoilerPage"
+              type="number"
+              min="1"
+              name="dm-spoiler-page-threshold"
+              placeholder="e.g. 220"
+            />
+          </label>
+          <label class="field">
+            <span class="field-label tiny">Or after progress % (optional)</span>
+            <input
+              v-model="spoilerProgressPercent"
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              name="dm-spoiler-progress-threshold"
+              placeholder="e.g. 60"
+            />
+          </label>
+        </div>
         <div class="composer-actions">
           <button type="submit" class="btn btn-primary" :disabled="!myMessage.trim() || isSending">
             {{ isSending ? "Sending…" : "Send" }}
           </button>
         </div>
       </form>
+    </template>
+
+    <template id="tpl-channel">
+      <article class="thread-empty channel-info-page">
+        <h2>{{ $route.query.label || "Channel details" }}</h2>
+        <p class="hint">
+          {{ $route.query.context || "This page explains what this channel is used for in ShelfTalk." }}
+        </p>
+        <p class="hint">
+          Channel id:
+          <code class="code-tiny">{{ $route.query.id || "Unavailable" }}</code>
+        </p>
+        <div class="channel-info-actions">
+          <button
+            type="button"
+            class="btn btn-primary btn-tiny"
+            :disabled="!$route.query.id"
+            @click="copyChannelInfoId($route.query.id)"
+          >
+            Copy channel id
+          </button>
+          <router-link class="btn btn-ghost btn-tiny" to="/">Back home</router-link>
+        </div>
+        <p v-if="channelInfoCopyFeedback" class="hint">{{ channelInfoCopyFeedback }}</p>
+      </article>
     </template>
 
     <template id="tpl-message-row">
@@ -956,6 +1190,7 @@
       >
         <div class="message-meta message-meta-row">
           <div class="message-meta-main">
+            <span class="message-author-label">From</span>
             <router-link
               v-if="msg.actor"
               class="message-actor-profile"
@@ -963,6 +1198,7 @@
             >
               <graffiti-actor-to-handle :actor="msg.actor" />
             </router-link>
+            <span v-else class="hint">Unknown reader</span>
             <time :datetime="new Date(msg.value.published).toISOString()">
               {{ new Date(msg.value.published).toLocaleString() }}
             </time>
@@ -978,19 +1214,22 @@
         </div>
         <div
           class="bubble"
-          :class="{ blurred: msg.value.isBlurred && !revealedMessageUrls.has(msg.url) }"
+          :class="{ blurred: msg.value.isBlurred && !revealedMessageUrls.has(msg.url) && !shouldAutoRevealSpoiler(msg) }"
         >
           <p v-if="msg.value.isBlurred" class="spoiler-label">
             {{ msg.value.spoilerWarning || "Spoiler" }}
+          </p>
+          <p v-if="shouldAutoRevealSpoiler(msg)" class="spoiler-autoreveal-note">
+            Auto-revealed based on your reading progress.
           </p>
           <p class="message-text">{{ msg.value.content }}</p>
         </div>
         <div class="message-actions">
           <button
-            v-if="msg.value.isBlurred"
+            v-if="msg.value.isBlurred && !shouldAutoRevealSpoiler(msg)"
             type="button"
             class="btn btn-ghost btn-tiny"
-            @click="toggleReveal(msg.url)"
+            @click="toggleRevealWithAlert(msg)"
           >
             {{ revealedMessageUrls.has(msg.url) ? "Hide spoiler" : "Show spoiler" }}
           </button>
