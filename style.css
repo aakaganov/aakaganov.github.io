@@ -760,3 +760,118 @@ code {
   padding: 2px 6px;
   border-radius: 6px;
 }
+
+.thread-empty {
+  animation: fadeInUp 260ms ease-out both;
+}
+
+.thread-head,
+.dm-inbox,
+.club-row,
+.message {
+  opacity: 0;
+  animation: popIn 240ms ease-out both;
+}
+
+.thread-head {
+  animation-name: slideInDown;
+}
+
+.club-row {
+  animation-delay: 40ms;
+}
+
+.message {
+  animation-name: messageEnter;
+}
+
+.progress-fill {
+  transition: width 380ms ease;
+}
+
+.bubble {
+  transition: filter 220ms ease, background-color 220ms ease;
+}
+
+.btn-primary:focus-visible,
+.btn-primary:hover {
+  animation: buttonGlow 850ms ease-out 1;
+}
+
+.banner {
+  animation: fadeIn 220ms ease-out both;
+}
+
+.dm-inbox-row {
+  animation-name: slideInLeft;
+  animation-duration: 260ms;
+  animation-timing-function: ease-out;
+  animation-fill-mode: both;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes messageEnter {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes buttonGlow {
+  0% {
+    box-shadow: 0 0 0 rgba(255, 255, 255, 0);
+  }
+  50% {
+    box-shadow: 0 0 18px rgba(255, 255, 255, 0.18);
+  }
+  100% {
+    box-shadow: 0 0 0 rgba(255, 255, 255, 0);
+  }
+}
