@@ -26,6 +26,12 @@ const router = createRouter({
       component: loadComponent("dm"),
       props: true,
     },
+    {
+      path: "/reader/:peerKey",
+      name: "reader",
+      component: loadComponent("reader"),
+      props: true,
+    },
   ],
 });
 

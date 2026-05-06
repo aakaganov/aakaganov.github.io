@@ -97,6 +97,47 @@ export function useShelfTalk() {
     }
   });
 
+  const readerProfilePeerActor = computed(() => {
+    if (route.name !== "reader" || route.params.peerKey == null) return null;
+    try {
+      const peer = keyToPeer(String(route.params.peerKey));
+      return peer.trim() ? peer : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const readerProfileInvalid = computed(
+    () =>
+      route.name === "reader" && Boolean(route.params.peerKey) && readerProfilePeerActor.value == null,
+  );
+
+  const readerProfileDiscoverChannel = computed(() => {
+    const peer = readerProfilePeerActor.value;
+    return peer ? `${peer}/profile` : IDLE_MESSAGE_CHANNEL;
+  });
+
+  const { objects: rawReaderProfileObjects, isFirstPoll: readerProfilePollLoading } =
+    useGraffitiDiscover(
+      () => [readerProfileDiscoverChannel.value],
+      currentlyReadingSchema,
+      undefined,
+      true,
+    );
+
+  const readerCurrentlyReading = computed(() => {
+    const peer = readerProfilePeerActor.value;
+    if (!peer) return [];
+    return rawReaderProfileObjects.value
+      .filter(
+        (o) =>
+          o.actor === peer &&
+          o.value?.type === "CurrentlyReading" &&
+          typeof o.value?.title === "string",
+      )
+      .toSorted((a, b) => (b.value.published ?? 0) - (a.value.published ?? 0));
+  });
+
   const dmPeerInvalid = computed(
     () => route.name === "dm" && Boolean(route.params.peerKey) && dmPeerActor.value == null,
   );
@@ -139,7 +180,12 @@ export function useShelfTalk() {
   const revealedMessageUrls = ref(new Set());
 
   watch(
-    () => [route.name, route.params.chatId, route.params.peerKey],
+    () => [
+      route.name,
+      route.params.chatId,
+      route.params.peerKey,
+      readerProfileDiscoverChannel.value,
+    ],
     () => {
       revealedMessageUrls.value = new Set();
     },
@@ -488,6 +534,11 @@ export function useShelfTalk() {
     activeClubChannel,
     dmPeerActor,
     dmPeerInvalid,
+    readerProfilePeerActor,
+    readerProfileInvalid,
+    readerProfileDiscoverChannel,
+    readerProfilePollLoading,
+    readerCurrentlyReading,
     dmSelfConversation,
     dmInboxRows,
     newDmPeerInput,

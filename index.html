@@ -428,6 +428,79 @@
       </form>
     </template>
 
+    <template id="tpl-reader">
+      <div class="thread-head">
+        <router-link class="btn btn-ghost back-link" to="/">← Home</router-link>
+        <div>
+          <h2>Reader profile</h2>
+          <p v-if="!readerProfileInvalid && readerProfilePeerActor" class="hint reader-profile-intro">
+            <graffiti-actor-to-handle :actor="readerProfilePeerActor" />
+            <template v-if="readerProfileDiscoverChannel && readerProfileDiscoverChannel !== profileChannel">
+              — books saved on
+              <code class="code-tiny truncate" :title="readerProfileDiscoverChannel">{{
+                readerProfileDiscoverChannel
+              }}</code>
+            </template>
+          </p>
+          <p v-if="readerProfileInvalid" class="banner banner-error" role="alert">
+            This reader link is invalid or could not be decoded.
+          </p>
+          <router-link
+            v-if="!readerProfileInvalid && readerProfilePeerActor && readerProfilePeerActor !== $graffitiSession.value?.actor"
+            class="btn btn-ghost btn-tiny dm-peer-link-inline"
+            :to="{ name: 'dm', params: { peerKey: peerToKey(readerProfilePeerActor) } }"
+          >
+            Message privately
+          </router-link>
+        </div>
+      </div>
+
+      <section v-if="!readerProfileInvalid" class="reader-books" aria-labelledby="reader-books-heading">
+        <h3 id="reader-books-heading" class="panel-subhead">Currently reading</h3>
+
+        <div v-if="readerProfilePollLoading" class="loading-block">
+          <span class="spinner" aria-hidden="true"></span>
+          <span>Loading their books…</span>
+        </div>
+        <ul v-else class="reading-list reader-reading-list-static" role="list">
+          <li v-if="!readerCurrentlyReading.length" class="empty">
+            Nothing listed yet — they have not added books to their reader profile channel.
+          </li>
+          <li v-for="book of readerCurrentlyReading" :key="book.url" class="reading-row reading-row-static">
+            <div class="reading-main">
+              <span class="reading-title">{{ book.value.title }}</span>
+              <span v-if="book.value.isbn" class="reading-isbn">{{ book.value.isbn }}</span>
+              <div v-if="book.value.totalPages > 0" class="reading-progress">
+                <span class="reading-stat">Current page: {{ book.value.currentPage ?? 0 }}</span>
+                <span class="reading-stat">Total pages: {{ book.value.totalPages }}</span>
+                <span
+                  class="progress-meter"
+                  role="img"
+                  :aria-label="`Progress: ${Math.min(100, Math.round(((book.value.currentPage ?? 0) / book.value.totalPages) * 100))} percent`"
+                >
+                  <span
+                    class="progress-fill"
+                    :style="{
+                      width:
+                        Math.min(
+                          100,
+                          Math.round(
+                            ((book.value.currentPage ?? 0) / book.value.totalPages) * 100,
+                          ),
+                        ) + '%',
+                    }"
+                  ></span>
+                </span>
+              </div>
+              <div v-else-if="book.value.currentPage != null" class="reading-progress">
+                <span class="reading-stat">Current page: {{ book.value.currentPage }}</span>
+              </div>
+            </div>
+          </li>
+        </ul>
+      </section>
+    </template>
+
     <template id="tpl-dms">
       <div class="thread-head">
         <router-link class="btn btn-ghost back-link" to="/">← Home</router-link>
@@ -443,17 +516,23 @@
       <section class="dm-inbox" aria-labelledby="dm-inbox-heading">
         <h3 id="dm-inbox-heading" class="panel-subhead">Recent</h3>
         <ul v-if="dmInboxRows.length" class="dm-inbox-list" role="list">
-          <li v-for="row in dmInboxRows" :key="row.peerActor">
-            <router-link
-              class="dm-inbox-row"
-              :to="{ name: 'dm', params: { peerKey: peerToKey(row.peerActor) } }"
-            >
-              <span class="dm-inbox-peer">
+          <li v-for="row in dmInboxRows" :key="row.peerActor" class="dm-inbox-card">
+            <div class="dm-inbox-card-top">
+              <router-link
+                class="message-actor-profile dm-inbox-profile-link"
+                :to="{ name: 'reader', params: { peerKey: peerToKey(row.peerActor) } }"
+              >
                 <graffiti-actor-to-handle :actor="row.peerActor" />
-              </span>
-              <span class="dm-inbox-meta">{{ new Date(row.updated).toLocaleString() }}</span>
-              <span v-if="row.lastPreview" class="dm-inbox-preview">{{ row.lastPreview }}</span>
-            </router-link>
+              </router-link>
+              <router-link
+                class="btn btn-ghost btn-tiny"
+                :to="{ name: 'dm', params: { peerKey: peerToKey(row.peerActor) } }"
+              >
+                Open thread
+              </router-link>
+            </div>
+            <span class="dm-inbox-meta">{{ new Date(row.updated).toLocaleString() }}</span>
+            <span v-if="row.lastPreview" class="dm-inbox-preview">{{ row.lastPreview }}</span>
           </li>
         </ul>
         <p v-else class="thread-empty hint">
@@ -483,7 +562,13 @@
         <div>
           <h2>Direct message</h2>
           <p v-if="!dmPeerInvalid && !dmSelfConversation && dmPeerActor" class="hint">
-            With <graffiti-actor-to-handle :actor="dmPeerActor" />
+            With
+            <router-link
+              class="message-actor-profile"
+              :to="{ name: 'reader', params: { peerKey: peerToKey(dmPeerActor) } }"
+            >
+              <graffiti-actor-to-handle :actor="dmPeerActor" />
+            </router-link>
           </p>
           <p v-if="dmPeerInvalid" class="banner banner-error" role="alert">This link is not a valid conversation.</p>
           <p v-if="dmSelfConversation" class="banner banner-error" role="alert">
@@ -566,7 +651,13 @@
       >
         <div class="message-meta message-meta-row">
           <div class="message-meta-main">
-            <graffiti-actor-to-handle :actor="msg.actor" />
+            <router-link
+              v-if="msg.actor"
+              class="message-actor-profile"
+              :to="{ name: 'reader', params: { peerKey: peerToKey(msg.actor) } }"
+            >
+              <graffiti-actor-to-handle :actor="msg.actor" />
+            </router-link>
             <time :datetime="new Date(msg.value.published).toISOString()">
               {{ new Date(msg.value.published).toLocaleString() }}
             </time>

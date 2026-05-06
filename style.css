@@ -622,6 +622,67 @@ a.dm-peer-link {
   box-shadow: var(--shadow);
 }
 
+.dm-inbox-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.dm-inbox-card:hover {
+  border-color: #c8b8a4;
+  box-shadow: var(--shadow);
+}
+
+.dm-inbox-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.message-actor-profile {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px dotted var(--muted);
+}
+
+.message-actor-profile:hover {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+}
+
+.reader-profile-intro .message-actor-profile {
+  border-bottom: none;
+}
+
+.dm-inbox-profile-link {
+  flex: 1;
+  min-width: 0;
+}
+
+.reader-books {
+  margin-top: 8px;
+}
+
+.reader-reading-list-static {
+  max-height: none;
+}
+
+.reading-row-static {
+  justify-content: flex-start;
+}
+
+.dm-peer-link-inline {
+  align-self: flex-start;
+  margin-top: 6px;
+}
+
 .dm-inbox-meta {
   font-size: 0.85rem;
   color: var(--muted);
@@ -765,7 +826,6 @@ code {
   animation: fadeInUp 260ms ease-out both;
 }
 
-.thread-head,
 .dm-inbox,
 .club-row,
 .message {
@@ -773,8 +833,8 @@ code {
   animation: popIn 240ms ease-out both;
 }
 
-.thread-head {
-  animation-name: slideInDown;
+.messages {
+  animation: slideInDown 260ms ease-out both;
 }
 
 .club-row {
@@ -802,7 +862,8 @@ code {
   animation: fadeIn 220ms ease-out both;
 }
 
-.dm-inbox-row {
+.dm-inbox-row,
+.dm-inbox-card {
   animation-name: slideInLeft;
   animation-duration: 260ms;
   animation-timing-function: ease-out;
