@@ -131,109 +131,187 @@
                 <span class="spinner" aria-hidden="true"></span>
                 <span>Loading your books…</span>
               </div>
-              <ul v-else class="reading-list" role="list">
-                <li v-if="!myCurrentlyReading.length" class="empty">
-                  No books yet — add what you are reading below.
-                </li>
-                <li v-for="book of myCurrentlyReading" :key="book.url" class="reading-row">
-                  <div class="reading-main">
-                    <span class="reading-title">{{ book.value.title }}</span>
-                    <span v-if="book.value.isbn" class="reading-isbn">{{ book.value.isbn }}</span>
-                    <span class="reading-status-pill" :class="`status-${normalizeBookStatus(book.value.status)}`">
-                      {{
-                        normalizeBookStatus(book.value.status) === "finished"
-                          ? "Finished"
-                          : normalizeBookStatus(book.value.status) === "dnf"
-                            ? "DNF"
-                            : "Reading"
-                      }}
-                    </span>
-                    <div
-                      v-if="book.value.totalPages > 0"
-                      class="reading-progress"
-                    >
-                      <span class="reading-stat">Current page: {{ book.value.currentPage ?? 0 }}</span>
-                      <span class="reading-stat">Total pages: {{ book.value.totalPages }}</span>
-                      <span
-                        class="progress-meter"
-                        role="img"
-                        :aria-label="`Progress: ${Math.min(100, Math.round(((book.value.currentPage ?? 0) / book.value.totalPages) * 100))} percent`"
-                      >
-                        <span
-                          class="progress-fill"
-                          :style="{
-                            width:
-                              Math.min(
-                                100,
-                                Math.round(
-                                  ((book.value.currentPage ?? 0) / book.value.totalPages) * 100,
-                                ),
-                              ) + '%',
-                          }"
-                        ></span>
-                      </span>
-                    </div>
-                    <div v-else-if="book.value.currentPage != null" class="reading-progress">
-                      <span class="reading-stat">Current page: {{ book.value.currentPage }}</span>
-                    </div>
-                    <div class="book-update-actions">
-                      <label class="field compact">
-                        <span class="field-label tiny">Update page</span>
-                        <input
-                          :value="bookPageDrafts[book.url] ?? book.value.currentPage ?? ''"
-                          @focus="ensureBookPageDraft(book)"
-                          @input="setBookPageDraft(book.url, $event.target.value)"
-                          type="number"
-                          min="0"
-                          placeholder="Current page"
-                        />
-                      </label>
-                      <div class="book-update-buttons">
-                        <button
-                          type="button"
-                          class="btn btn-ghost btn-tiny"
-                          @click="updateCurrentPage(book)"
-                          :disabled="isUpdatingBook.has(book.url)"
-                        >
-                          {{ isUpdatingBook.has(book.url) ? "Saving…" : "Save page" }}
-                        </button>
-                        <button
-                          type="button"
-                          class="btn btn-ghost btn-tiny"
-                          @click="markBookFinished(book)"
-                          :disabled="isUpdatingBook.has(book.url) || normalizeBookStatus(book.value.status) === 'finished'"
-                        >
-                          Finish
-                        </button>
-                        <button
-                          type="button"
-                          class="btn btn-ghost btn-tiny danger"
-                          @click="markBookDnf(book)"
-                          :disabled="isUpdatingBook.has(book.url) || normalizeBookStatus(book.value.status) === 'dnf'"
-                        >
-                          DNF
-                        </button>
-                        <button
-                          type="button"
-                          class="btn btn-ghost btn-tiny"
-                          @click="markBookReading(book)"
-                          :disabled="isUpdatingBook.has(book.url) || normalizeBookStatus(book.value.status) === 'reading'"
-                        >
-                          Mark reading
-                        </button>
+              <div v-else class="profile-status-sections">
+                <section class="profile-status-section" aria-labelledby="my-reading-heading">
+                  <h3 id="my-reading-heading" class="panel-subhead">Currently reading</h3>
+                  <ul class="reading-list" role="list">
+                    <li v-if="!myBooksByStatus.reading.length" class="empty">No books in this section.</li>
+                    <li v-for="book of myBooksByStatus.reading" :key="book.url" class="reading-row">
+                      <div class="reading-main">
+                        <span class="reading-title">{{ book.value.title }}</span>
+                        <span v-if="book.value.isbn" class="reading-isbn">{{ book.value.isbn }}</span>
+                        <span class="reading-status-pill status-reading">Reading</span>
+                        <div v-if="book.value.totalPages > 0" class="reading-progress">
+                          <span class="reading-stat">Current page: {{ book.value.currentPage ?? 0 }}</span>
+                          <span class="reading-stat">Total pages: {{ book.value.totalPages }}</span>
+                          <span
+                            class="progress-meter"
+                            role="img"
+                            :aria-label="`Progress: ${Math.min(100, Math.round(((book.value.currentPage ?? 0) / book.value.totalPages) * 100))} percent`"
+                          >
+                            <span
+                              class="progress-fill"
+                              :style="{
+                                width:
+                                  Math.min(
+                                    100,
+                                    Math.round(
+                                      ((book.value.currentPage ?? 0) / book.value.totalPages) * 100,
+                                    ),
+                                  ) + '%',
+                              }"
+                            ></span>
+                          </span>
+                        </div>
+                        <div v-else-if="book.value.currentPage != null" class="reading-progress">
+                          <span class="reading-stat">Current page: {{ book.value.currentPage }}</span>
+                        </div>
+                        <div class="book-update-actions">
+                          <label class="field compact">
+                            <span class="field-label tiny">Update page</span>
+                            <input
+                              :value="bookPageDrafts[book.url] ?? book.value.currentPage ?? ''"
+                              @focus="ensureBookPageDraft(book)"
+                              @input="setBookPageDraft(book.url, $event.target.value)"
+                              type="number"
+                              min="0"
+                              placeholder="Current page"
+                            />
+                          </label>
+                          <div class="book-update-buttons">
+                            <button
+                              type="button"
+                              class="btn btn-ghost btn-tiny"
+                              @click="updateCurrentPage(book)"
+                              :disabled="isUpdatingBook.has(book.url)"
+                            >
+                              {{ isUpdatingBook.has(book.url) ? "Saving…" : "Save page" }}
+                            </button>
+                            <button
+                              type="button"
+                              class="btn btn-ghost btn-tiny"
+                              @click="markBookFinished(book)"
+                              :disabled="isUpdatingBook.has(book.url)"
+                            >
+                              Finish
+                            </button>
+                            <button
+                              type="button"
+                              class="btn btn-ghost btn-tiny danger"
+                              @click="markBookDnf(book)"
+                              :disabled="isUpdatingBook.has(book.url)"
+                            >
+                              DNF
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    class="btn btn-ghost btn-tiny danger"
-                    @click="removeCurrentlyReadingBook(book)"
-                    :disabled="isRemovingBook.has(book.url) || isUpdatingBook.has(book.url)"
-                  >
-                    {{ isRemovingBook.has(book.url) ? "Removing…" : "Remove" }}
-                  </button>
-                </li>
-              </ul>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-tiny danger"
+                        @click="removeCurrentlyReadingBook(book)"
+                        :disabled="isRemovingBook.has(book.url) || isUpdatingBook.has(book.url)"
+                      >
+                        {{ isRemovingBook.has(book.url) ? "Removing…" : "Remove" }}
+                      </button>
+                    </li>
+                  </ul>
+                </section>
+
+                <section class="profile-status-section" aria-labelledby="my-finished-heading">
+                  <h3 id="my-finished-heading" class="panel-subhead">Finished</h3>
+                  <ul class="reading-list" role="list">
+                    <li v-if="!myBooksByStatus.finished.length" class="empty">No books in this section.</li>
+                    <li v-for="book of myBooksByStatus.finished" :key="book.url" class="reading-row">
+                      <div class="reading-main">
+                        <span class="reading-title">{{ book.value.title }}</span>
+                        <span v-if="book.value.isbn" class="reading-isbn">{{ book.value.isbn }}</span>
+                        <span class="reading-status-pill status-finished">Finished</span>
+                        <div v-if="book.value.totalPages > 0" class="reading-progress">
+                          <span class="reading-stat">Current page: {{ book.value.currentPage ?? 0 }}</span>
+                          <span class="reading-stat">Total pages: {{ book.value.totalPages }}</span>
+                        </div>
+                        <div v-else-if="book.value.currentPage != null" class="reading-progress">
+                          <span class="reading-stat">Current page: {{ book.value.currentPage }}</span>
+                        </div>
+                        <div class="book-update-buttons">
+                          <button
+                            type="button"
+                            class="btn btn-ghost btn-tiny"
+                            @click="markBookReading(book)"
+                            :disabled="isUpdatingBook.has(book.url)"
+                          >
+                            Mark reading
+                          </button>
+                          <button
+                            type="button"
+                            class="btn btn-ghost btn-tiny danger"
+                            @click="markBookDnf(book)"
+                            :disabled="isUpdatingBook.has(book.url)"
+                          >
+                            DNF
+                          </button>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-tiny danger"
+                        @click="removeCurrentlyReadingBook(book)"
+                        :disabled="isRemovingBook.has(book.url) || isUpdatingBook.has(book.url)"
+                      >
+                        {{ isRemovingBook.has(book.url) ? "Removing…" : "Remove" }}
+                      </button>
+                    </li>
+                  </ul>
+                </section>
+
+                <section class="profile-status-section" aria-labelledby="my-dnf-heading">
+                  <h3 id="my-dnf-heading" class="panel-subhead">DNF</h3>
+                  <ul class="reading-list" role="list">
+                    <li v-if="!myBooksByStatus.dnf.length" class="empty">No books in this section.</li>
+                    <li v-for="book of myBooksByStatus.dnf" :key="book.url" class="reading-row">
+                      <div class="reading-main">
+                        <span class="reading-title">{{ book.value.title }}</span>
+                        <span v-if="book.value.isbn" class="reading-isbn">{{ book.value.isbn }}</span>
+                        <span class="reading-status-pill status-dnf">DNF</span>
+                        <div v-if="book.value.totalPages > 0" class="reading-progress">
+                          <span class="reading-stat">Current page: {{ book.value.currentPage ?? 0 }}</span>
+                          <span class="reading-stat">Total pages: {{ book.value.totalPages }}</span>
+                        </div>
+                        <div v-else-if="book.value.currentPage != null" class="reading-progress">
+                          <span class="reading-stat">Current page: {{ book.value.currentPage }}</span>
+                        </div>
+                        <div class="book-update-buttons">
+                          <button
+                            type="button"
+                            class="btn btn-ghost btn-tiny"
+                            @click="markBookReading(book)"
+                            :disabled="isUpdatingBook.has(book.url)"
+                          >
+                            Mark reading
+                          </button>
+                          <button
+                            type="button"
+                            class="btn btn-ghost btn-tiny"
+                            @click="markBookFinished(book)"
+                            :disabled="isUpdatingBook.has(book.url)"
+                          >
+                            Finish
+                          </button>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-tiny danger"
+                        @click="removeCurrentlyReadingBook(book)"
+                        :disabled="isRemovingBook.has(book.url) || isUpdatingBook.has(book.url)"
+                      >
+                        {{ isRemovingBook.has(book.url) ? "Removing…" : "Remove" }}
+                      </button>
+                    </li>
+                  </ul>
+                </section>
+              </div>
 
               <form class="add-book-form" @submit.prevent="addCurrentlyReadingBook">
                 <span class="field-label">Add a book</span>
@@ -512,57 +590,98 @@
       </div>
 
       <section v-if="!readerProfileInvalid" class="reader-books" aria-labelledby="reader-books-heading">
-        <h3 id="reader-books-heading" class="panel-subhead">Currently reading</h3>
+        <h3 id="reader-books-heading" class="panel-subhead">Books by status</h3>
 
         <div v-if="readerProfilePollLoading" class="loading-block">
           <span class="spinner" aria-hidden="true"></span>
           <span>Loading their books…</span>
         </div>
-        <ul v-else class="reading-list reader-reading-list-static" role="list">
-          <li v-if="!readerCurrentlyReading.length" class="empty">
+        <div v-else class="profile-status-sections">
+          <section class="profile-status-section" aria-labelledby="reader-reading-section-heading">
+            <h4 id="reader-reading-section-heading" class="panel-subhead">Currently reading</h4>
+            <ul class="reading-list reader-reading-list-static" role="list">
+              <li v-if="!readerBooksByStatus.reading.length" class="empty">No books in this section.</li>
+              <li v-for="book of readerBooksByStatus.reading" :key="book.url" class="reading-row reading-row-static">
+                <div class="reading-main">
+                  <span class="reading-title">{{ book.value.title }}</span>
+                  <span v-if="book.value.isbn" class="reading-isbn">{{ book.value.isbn }}</span>
+                  <span class="reading-status-pill status-reading">Reading</span>
+                  <div v-if="book.value.totalPages > 0" class="reading-progress">
+                    <span class="reading-stat">Current page: {{ book.value.currentPage ?? 0 }}</span>
+                    <span class="reading-stat">Total pages: {{ book.value.totalPages }}</span>
+                    <span
+                      class="progress-meter"
+                      role="img"
+                      :aria-label="`Progress: ${Math.min(100, Math.round(((book.value.currentPage ?? 0) / book.value.totalPages) * 100))} percent`"
+                    >
+                      <span
+                        class="progress-fill"
+                        :style="{
+                          width:
+                            Math.min(
+                              100,
+                              Math.round(
+                                ((book.value.currentPage ?? 0) / book.value.totalPages) * 100,
+                              ),
+                            ) + '%',
+                        }"
+                      ></span>
+                    </span>
+                  </div>
+                  <div v-else-if="book.value.currentPage != null" class="reading-progress">
+                    <span class="reading-stat">Current page: {{ book.value.currentPage }}</span>
+                  </div>
+                </div>
+              </li>
+            </ul>
+          </section>
+          <section class="profile-status-section" aria-labelledby="reader-finished-section-heading">
+            <h4 id="reader-finished-section-heading" class="panel-subhead">Finished</h4>
+            <ul class="reading-list reader-reading-list-static" role="list">
+              <li v-if="!readerBooksByStatus.finished.length" class="empty">No books in this section.</li>
+              <li v-for="book of readerBooksByStatus.finished" :key="book.url" class="reading-row reading-row-static">
+                <div class="reading-main">
+                  <span class="reading-title">{{ book.value.title }}</span>
+                  <span v-if="book.value.isbn" class="reading-isbn">{{ book.value.isbn }}</span>
+                  <span class="reading-status-pill status-finished">Finished</span>
+                  <div v-if="book.value.totalPages > 0" class="reading-progress">
+                    <span class="reading-stat">Current page: {{ book.value.currentPage ?? 0 }}</span>
+                    <span class="reading-stat">Total pages: {{ book.value.totalPages }}</span>
+                  </div>
+                  <div v-else-if="book.value.currentPage != null" class="reading-progress">
+                    <span class="reading-stat">Current page: {{ book.value.currentPage }}</span>
+                  </div>
+                </div>
+              </li>
+            </ul>
+          </section>
+          <section class="profile-status-section" aria-labelledby="reader-dnf-section-heading">
+            <h4 id="reader-dnf-section-heading" class="panel-subhead">DNF</h4>
+            <ul class="reading-list reader-reading-list-static" role="list">
+              <li v-if="!readerBooksByStatus.dnf.length" class="empty">No books in this section.</li>
+              <li v-for="book of readerBooksByStatus.dnf" :key="book.url" class="reading-row reading-row-static">
+                <div class="reading-main">
+                  <span class="reading-title">{{ book.value.title }}</span>
+                  <span v-if="book.value.isbn" class="reading-isbn">{{ book.value.isbn }}</span>
+                  <span class="reading-status-pill status-dnf">DNF</span>
+                  <div v-if="book.value.totalPages > 0" class="reading-progress">
+                    <span class="reading-stat">Current page: {{ book.value.currentPage ?? 0 }}</span>
+                    <span class="reading-stat">Total pages: {{ book.value.totalPages }}</span>
+                  </div>
+                  <div v-else-if="book.value.currentPage != null" class="reading-progress">
+                    <span class="reading-stat">Current page: {{ book.value.currentPage }}</span>
+                  </div>
+                </div>
+              </li>
+            </ul>
+          </section>
+          <p
+            v-if="!readerBooksByStatus.reading.length && !readerBooksByStatus.finished.length && !readerBooksByStatus.dnf.length"
+            class="empty"
+          >
             Nothing listed yet — they have not added books to their reader profile channel.
-          </li>
-          <li v-for="book of readerCurrentlyReading" :key="book.url" class="reading-row reading-row-static">
-            <div class="reading-main">
-              <span class="reading-title">{{ book.value.title }}</span>
-              <span v-if="book.value.isbn" class="reading-isbn">{{ book.value.isbn }}</span>
-              <span class="reading-status-pill" :class="`status-${normalizeBookStatus(book.value.status)}`">
-                {{
-                  normalizeBookStatus(book.value.status) === "finished"
-                    ? "Finished"
-                    : normalizeBookStatus(book.value.status) === "dnf"
-                      ? "DNF"
-                      : "Reading"
-                }}
-              </span>
-              <div v-if="book.value.totalPages > 0" class="reading-progress">
-                <span class="reading-stat">Current page: {{ book.value.currentPage ?? 0 }}</span>
-                <span class="reading-stat">Total pages: {{ book.value.totalPages }}</span>
-                <span
-                  class="progress-meter"
-                  role="img"
-                  :aria-label="`Progress: ${Math.min(100, Math.round(((book.value.currentPage ?? 0) / book.value.totalPages) * 100))} percent`"
-                >
-                  <span
-                    class="progress-fill"
-                    :style="{
-                      width:
-                        Math.min(
-                          100,
-                          Math.round(
-                            ((book.value.currentPage ?? 0) / book.value.totalPages) * 100,
-                          ),
-                        ) + '%',
-                    }"
-                  ></span>
-                </span>
-              </div>
-              <div v-else-if="book.value.currentPage != null" class="reading-progress">
-                <span class="reading-stat">Current page: {{ book.value.currentPage }}</span>
-              </div>
-            </div>
-          </li>
-        </ul>
+          </p>
+        </div>
       </section>
     </template>
 

@@ -321,6 +321,22 @@ textarea {
   gap: 12px;
 }
 
+.profile-status-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.profile-status-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.profile-status-section .panel-subhead {
+  margin-bottom: 0;
+}
+
 .profile-banner {
   margin: 0;
 }

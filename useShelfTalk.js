@@ -140,6 +140,20 @@ export function useShelfTalk() {
       .toSorted((a, b) => (b.value.published ?? 0) - (a.value.published ?? 0));
   });
 
+  function splitBooksByStatus(entries) {
+    const grouped = {
+      reading: [],
+      finished: [],
+      dnf: [],
+    };
+    for (const entry of entries) {
+      grouped[normalizeBookStatus(entry.value?.status)].push(entry);
+    }
+    return grouped;
+  }
+
+  const readerBooksByStatus = computed(() => splitBooksByStatus(readerCurrentlyReading.value));
+
   const dmPeerInvalid = computed(
     () => route.name === "dm" && Boolean(route.params.peerKey) && dmPeerActor.value == null,
   );
@@ -235,6 +249,8 @@ export function useShelfTalk() {
       )
       .toSorted((a, b) => (b.value.published ?? 0) - (a.value.published ?? 0));
   });
+
+  const myBooksByStatus = computed(() => splitBooksByStatus(myCurrentlyReading.value));
 
   const { objects: clubObjects, isFirstPoll: clubsLoading } = useGraffitiDiscover(
     [BOOK_CLUB_DIRECTORY],
@@ -646,6 +662,7 @@ export function useShelfTalk() {
     readerProfileDiscoverChannel,
     readerProfilePollLoading,
     readerCurrentlyReading,
+    readerBooksByStatus,
     dmSelfConversation,
     dmInboxRows,
     newDmPeerInput,
@@ -679,6 +696,7 @@ export function useShelfTalk() {
     dismissDeleteError,
     profilePollLoading,
     myCurrentlyReading,
+    myBooksByStatus,
     newBookTitle,
     newBookIsbn,
     newBookCurrentPage,
@@ -689,6 +707,7 @@ export function useShelfTalk() {
     isUpdatingBook,
     bookPageDrafts,
     normalizeBookStatus,
+    splitBooksByStatus,
     ensureBookPageDraft,
     setBookPageDraft,
     addCurrentlyReadingBook,
