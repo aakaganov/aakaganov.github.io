@@ -377,6 +377,34 @@ textarea {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+.reading-status-pill {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border: 1px solid var(--line);
+}
+
+.reading-status-pill.status-reading {
+  background: rgba(61, 107, 85, 0.08);
+  border-color: rgba(61, 107, 85, 0.25);
+  color: var(--accent-2);
+}
+
+.reading-status-pill.status-finished {
+  background: rgba(107, 78, 61, 0.1);
+  border-color: rgba(107, 78, 61, 0.3);
+  color: var(--accent);
+}
+
+.reading-status-pill.status-dnf {
+  background: rgba(155, 44, 44, 0.09);
+  border-color: rgba(155, 44, 44, 0.3);
+  color: var(--danger);
+}
+
 .reading-progress {
   font-size: 0.85rem;
   color: var(--muted);
@@ -416,6 +444,27 @@ textarea {
   gap: 8px;
   padding-top: 8px;
   border-top: 1px solid var(--line);
+}
+
+.field.compact {
+  gap: 4px;
+}
+
+.book-update-actions {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.book-update-actions input {
+  max-width: 160px;
+}
+
+.book-update-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .field-label.tiny {

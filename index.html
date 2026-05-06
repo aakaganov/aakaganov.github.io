@@ -139,6 +139,15 @@
                   <div class="reading-main">
                     <span class="reading-title">{{ book.value.title }}</span>
                     <span v-if="book.value.isbn" class="reading-isbn">{{ book.value.isbn }}</span>
+                    <span class="reading-status-pill" :class="`status-${normalizeBookStatus(book.value.status)}`">
+                      {{
+                        normalizeBookStatus(book.value.status) === "finished"
+                          ? "Finished"
+                          : normalizeBookStatus(book.value.status) === "dnf"
+                            ? "DNF"
+                            : "Reading"
+                      }}
+                    </span>
                     <div
                       v-if="book.value.totalPages > 0"
                       class="reading-progress"
@@ -167,12 +176,59 @@
                     <div v-else-if="book.value.currentPage != null" class="reading-progress">
                       <span class="reading-stat">Current page: {{ book.value.currentPage }}</span>
                     </div>
+                    <div class="book-update-actions">
+                      <label class="field compact">
+                        <span class="field-label tiny">Update page</span>
+                        <input
+                          :value="bookPageDrafts[book.url] ?? book.value.currentPage ?? ''"
+                          @focus="ensureBookPageDraft(book)"
+                          @input="setBookPageDraft(book.url, $event.target.value)"
+                          type="number"
+                          min="0"
+                          placeholder="Current page"
+                        />
+                      </label>
+                      <div class="book-update-buttons">
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-tiny"
+                          @click="updateCurrentPage(book)"
+                          :disabled="isUpdatingBook.has(book.url)"
+                        >
+                          {{ isUpdatingBook.has(book.url) ? "Saving…" : "Save page" }}
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-tiny"
+                          @click="markBookFinished(book)"
+                          :disabled="isUpdatingBook.has(book.url) || normalizeBookStatus(book.value.status) === 'finished'"
+                        >
+                          Finish
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-tiny danger"
+                          @click="markBookDnf(book)"
+                          :disabled="isUpdatingBook.has(book.url) || normalizeBookStatus(book.value.status) === 'dnf'"
+                        >
+                          DNF
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-tiny"
+                          @click="markBookReading(book)"
+                          :disabled="isUpdatingBook.has(book.url) || normalizeBookStatus(book.value.status) === 'reading'"
+                        >
+                          Mark reading
+                        </button>
+                      </div>
+                    </div>
                   </div>
                   <button
                     type="button"
                     class="btn btn-ghost btn-tiny danger"
                     @click="removeCurrentlyReadingBook(book)"
-                    :disabled="isRemovingBook.has(book.url)"
+                    :disabled="isRemovingBook.has(book.url) || isUpdatingBook.has(book.url)"
                   >
                     {{ isRemovingBook.has(book.url) ? "Removing…" : "Remove" }}
                   </button>
@@ -470,6 +526,15 @@
             <div class="reading-main">
               <span class="reading-title">{{ book.value.title }}</span>
               <span v-if="book.value.isbn" class="reading-isbn">{{ book.value.isbn }}</span>
+              <span class="reading-status-pill" :class="`status-${normalizeBookStatus(book.value.status)}`">
+                {{
+                  normalizeBookStatus(book.value.status) === "finished"
+                    ? "Finished"
+                    : normalizeBookStatus(book.value.status) === "dnf"
+                      ? "DNF"
+                      : "Reading"
+                }}
+              </span>
               <div v-if="book.value.totalPages > 0" class="reading-progress">
                 <span class="reading-stat">Current page: {{ book.value.currentPage ?? 0 }}</span>
                 <span class="reading-stat">Total pages: {{ book.value.totalPages }}</span>

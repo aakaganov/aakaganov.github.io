@@ -50,6 +50,8 @@ const currentlyReadingSchema = {
         isbn: { type: "string" },
         currentPage: { type: "number" },
         totalPages: { type: "number" },
+        status: { type: "string" },
+        statusUpdatedAt: { type: "number" },
         published: { type: "number" },
       },
     },
@@ -203,6 +205,8 @@ export function useShelfTalk() {
   const isAddingBook = ref(false);
   const profileError = ref("");
   const isRemovingBook = ref(new Set());
+  const isUpdatingBook = ref(new Set());
+  const bookPageDrafts = ref({});
 
   const { objects: rawProfileObjects, isFirstPoll: profilePollLoading } =
     useGraffitiDiscover(
@@ -351,6 +355,107 @@ export function useShelfTalk() {
     profileError.value = "";
   }
 
+  function normalizeBookStatus(status) {
+    if (status === "finished" || status === "dnf") return status;
+    return "reading";
+  }
+
+  function parseDraftPage(value) {
+    const parsed = parseInt(String(value ?? "").trim(), 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function setBookPageDraft(url, value) {
+    bookPageDrafts.value = {
+      ...bookPageDrafts.value,
+      [url]: value == null || value === "" ? "" : String(value),
+    };
+  }
+
+  function ensureBookPageDraft(entry) {
+    if (!entry?.url) return;
+    if (Object.prototype.hasOwnProperty.call(bookPageDrafts.value, entry.url)) return;
+    setBookPageDraft(entry.url, entry.value?.currentPage ?? "");
+  }
+
+  async function replaceCurrentlyReadingEntry(entry, patch = {}) {
+    if (!session.value || entry.actor !== session.value.actor) return;
+    profileError.value = "";
+    const pending = new Set(isUpdatingBook.value);
+    pending.add(entry.url);
+    isUpdatingBook.value = pending;
+    try {
+      const currentPageInput =
+        patch.currentPage ?? parseDraftPage(bookPageDrafts.value[entry.url] ?? entry.value?.currentPage);
+      const totalPages =
+        Number.isFinite(entry.value?.totalPages) && entry.value.totalPages >= 0
+          ? entry.value.totalPages
+          : null;
+      if (currentPageInput != null && currentPageInput < 0) {
+        profileError.value = "Current page cannot be negative.";
+        return;
+      }
+      if (
+        currentPageInput != null &&
+        Number.isFinite(totalPages) &&
+        totalPages > 0 &&
+        currentPageInput > totalPages
+      ) {
+        profileError.value = "Current page cannot be greater than total pages.";
+        return;
+      }
+      const nextStatus = normalizeBookStatus(patch.status ?? entry.value?.status);
+      const nextValue = {
+        type: "CurrentlyReading",
+        title: String(entry.value?.title ?? "").trim(),
+        published: Date.now(),
+        status: nextStatus,
+        statusUpdatedAt: Date.now(),
+      };
+      const isbn = String(entry.value?.isbn ?? "").trim();
+      if (isbn) nextValue.isbn = isbn;
+      if (currentPageInput != null) nextValue.currentPage = currentPageInput;
+      if (Number.isFinite(totalPages)) nextValue.totalPages = totalPages;
+
+      await graffiti.post(
+        {
+          value: nextValue,
+          channels: [profileChannel.value],
+        },
+        session.value,
+      );
+      await graffiti.delete(entry, session.value);
+      setBookPageDraft(entry.url, nextValue.currentPage ?? "");
+    } catch (e) {
+      profileError.value =
+        e instanceof Error ? e.message : "Could not update this book on your profile.";
+    } finally {
+      const done = new Set(isUpdatingBook.value);
+      done.delete(entry.url);
+      isUpdatingBook.value = done;
+    }
+  }
+
+  function updateCurrentPage(entry) {
+    return replaceCurrentlyReadingEntry(entry);
+  }
+
+  function markBookFinished(entry) {
+    const totalPages =
+      Number.isFinite(entry.value?.totalPages) && entry.value.totalPages > 0 ? entry.value.totalPages : null;
+    const patch = { status: "finished" };
+    if (totalPages != null) patch.currentPage = totalPages;
+    return replaceCurrentlyReadingEntry(entry, patch);
+  }
+
+  function markBookDnf(entry) {
+    return replaceCurrentlyReadingEntry(entry, { status: "dnf" });
+  }
+
+  function markBookReading(entry) {
+    return replaceCurrentlyReadingEntry(entry, { status: "reading" });
+  }
+
   async function addCurrentlyReadingBook() {
     const title = newBookTitle.value.trim();
     if (!title || !session.value) return;
@@ -378,6 +483,8 @@ export function useShelfTalk() {
       const value = {
         type: "CurrentlyReading",
         title,
+        status: "reading",
+        statusUpdatedAt: Date.now(),
         published: Date.now(),
       };
       const isbn = newBookIsbn.value.trim();
@@ -579,8 +686,17 @@ export function useShelfTalk() {
     isAddingBook,
     profileError,
     isRemovingBook,
+    isUpdatingBook,
+    bookPageDrafts,
+    normalizeBookStatus,
+    ensureBookPageDraft,
+    setBookPageDraft,
     addCurrentlyReadingBook,
     removeCurrentlyReadingBook,
+    updateCurrentPage,
+    markBookFinished,
+    markBookDnf,
+    markBookReading,
     dismissProfileError,
   };
 }
