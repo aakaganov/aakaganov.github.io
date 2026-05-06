@@ -483,19 +483,140 @@
             Messages live in this club’s private channel id
             <code class="truncate" :title="$route.params.chatId">{{ $route.params.chatId }}</code>
           </p>
+          <p v-if="activeClubOwnerActor" class="hint">
+            Owner:
+            <graffiti-actor-to-handle :actor="activeClubOwnerActor" />
+          </p>
         </div>
       </div>
 
+      <section v-if="clubForActiveChat" class="club-settings-panel" aria-labelledby="club-settings-heading">
+        <h3 id="club-settings-heading" class="panel-subhead">Club settings</h3>
+        <dl class="club-settings-display">
+          <div>
+            <dt>Next meeting</dt>
+            <dd>{{ activeClubSettings?.nextMeetingAt || "Not set" }}</dd>
+          </div>
+          <div>
+            <dt>Location / link</dt>
+            <dd>{{ activeClubSettings?.nextMeetingLocation || "Not set" }}</dd>
+          </div>
+          <div>
+            <dt>Allowed genres</dt>
+            <dd>{{ activeClubSettings?.allowedGenres || "Not set" }}</dd>
+          </div>
+          <div>
+            <dt>Next book</dt>
+            <dd>{{ activeClubSettings?.nextBook || "Not set" }}</dd>
+          </div>
+        </dl>
+        <p v-if="!userCanManageActiveClub" class="hint">
+          Only the club owner can edit settings or delete this chat.
+        </p>
+        <button
+          v-else
+          type="button"
+          class="btn btn-ghost btn-tiny"
+          @click="toggleClubSettingsEditor"
+        >
+          {{ showClubSettingsEditor ? "Close update form" : "Update information" }}
+        </button>
+        <form
+          v-if="userCanManageActiveClub && showClubSettingsEditor"
+          class="club-settings-form"
+          @submit.prevent="saveActiveClubSettings"
+        >
+          <label class="field">
+            <span class="field-label">Club name</span>
+            <input
+              v-model="clubSettingsName"
+              type="text"
+              name="club-settings-name"
+              maxlength="80"
+              autocomplete="off"
+              placeholder="Club name"
+            />
+          </label>
+          <label class="field">
+            <span class="field-label">Date of next book club</span>
+            <input
+              v-model="clubSettingsNextMeetingAt"
+              type="text"
+              name="club-settings-next-meeting"
+              maxlength="120"
+              autocomplete="off"
+              placeholder="e.g. 2026-06-01 7:30 PM ET"
+            />
+          </label>
+          <label class="field">
+            <span class="field-label">Location / virtual link</span>
+            <input
+              v-model="clubSettingsNextMeetingLocation"
+              type="text"
+              name="club-settings-location"
+              maxlength="300"
+              autocomplete="off"
+              placeholder="e.g. Zoom link or cafe address"
+            />
+          </label>
+          <label class="field">
+            <span class="field-label">Allowed genres</span>
+            <input
+              v-model="clubSettingsAllowedGenres"
+              type="text"
+              name="club-settings-genres"
+              maxlength="240"
+              autocomplete="off"
+              placeholder="e.g. Sci-fi, Mystery, Memoir"
+            />
+          </label>
+          <label class="field">
+            <span class="field-label">Next book</span>
+            <input
+              v-model="clubSettingsNextBook"
+              type="text"
+              name="club-settings-next-book"
+              maxlength="200"
+              autocomplete="off"
+              placeholder="e.g. The Left Hand of Darkness"
+            />
+          </label>
+          <div class="club-settings-actions">
+            <button
+              type="submit"
+              class="btn btn-primary btn-tiny"
+              :disabled="!clubSettingsName.trim() || isSavingClubSettings || isDeletingClub"
+            >
+              {{ isSavingClubSettings ? "Saving…" : "Save settings" }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-tiny danger"
+              :disabled="isSavingClubSettings || isDeletingClub"
+              @click="deleteActiveClub"
+            >
+              {{ isDeletingClub ? "Deleting…" : "Delete club" }}
+            </button>
+          </div>
+        </form>
+      </section>
+
       <div
-        v-if="sendError || deleteError"
+        v-if="sendError || deleteError || clubSettingsError"
         class="banner banner-error"
         role="alert"
       >
-        <span>{{ sendError || deleteError }}</span>
+        <span>{{ sendError || deleteError || clubSettingsError }}</span>
         <button
           type="button"
           class="btn btn-ghost btn-tiny"
-          @click="sendError ? dismissSendError() : dismissDeleteError()"
+          @click="
+            sendError
+              ? dismissSendError()
+              : deleteError
+                ? dismissDeleteError()
+                : dismissClubSettingsError()
+          "
         >
           Dismiss
         </button>

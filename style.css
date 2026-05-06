@@ -577,6 +577,58 @@ textarea {
   margin: 4px 0 0;
 }
 
+.club-settings-panel {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.club-settings-display {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.club-settings-display div {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fdfaf4;
+}
+
+.club-settings-display dt {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.club-settings-display dd {
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.club-settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 32rem;
+}
+
+.club-settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .back-link {
   align-self: flex-start;
 }

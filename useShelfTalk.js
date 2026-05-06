@@ -12,12 +12,17 @@ const IDLE_MESSAGE_CHANNEL = "00000000-0000-4000-8000-000000000000";
 const bookClubCreateSchema = {
   properties: {
     value: {
-      required: ["activity", "type", "name", "channel", "published"],
+      required: ["activity", "type", "channel", "published"],
       properties: {
-        activity: { const: "Create" },
+        activity: { type: "string" },
         type: { const: "BookClub" },
         name: { type: "string" },
         channel: { type: "string" },
+        ownerActor: { type: "string" },
+        nextMeetingAt: { type: "string" },
+        nextMeetingLocation: { type: "string" },
+        allowedGenres: { type: "string" },
+        nextBook: { type: "string" },
         published: { type: "number" },
       },
     },
@@ -182,6 +187,15 @@ export function useShelfTalk() {
   const newClubName = ref("");
   const isCreatingClub = ref(false);
   const createClubError = ref("");
+  const clubSettingsName = ref("");
+  const clubSettingsNextMeetingAt = ref("");
+  const clubSettingsNextMeetingLocation = ref("");
+  const clubSettingsAllowedGenres = ref("");
+  const clubSettingsNextBook = ref("");
+  const showClubSettingsEditor = ref(false);
+  const clubSettingsError = ref("");
+  const isSavingClubSettings = ref(false);
+  const isDeletingClub = ref(false);
 
   const myMessage = ref("");
   const contextBook = ref("");
@@ -259,11 +273,61 @@ export function useShelfTalk() {
     true,
   );
 
-  const sortedClubs = computed(() =>
-    clubObjects.value.toSorted(
-      (a, b) => (b.value.published ?? 0) - (a.value.published ?? 0),
-    ),
-  );
+  const sortedClubs = computed(() => {
+    const byChannel = new Map();
+    const events = clubObjects.value
+      .filter((o) => o.value?.type === "BookClub" && typeof o.value?.channel === "string")
+      .toSorted((a, b) => (a.value.published ?? 0) - (b.value.published ?? 0));
+    for (const event of events) {
+      const channel = event.value.channel;
+      const activity = event.value.activity;
+      if (activity === "Delete") {
+        byChannel.delete(channel);
+        continue;
+      }
+      if (activity !== "Create" && activity !== "Update") continue;
+      const previous = byChannel.get(channel);
+      const ownerActor =
+        typeof event.value.ownerActor === "string" && event.value.ownerActor
+          ? event.value.ownerActor
+          : previous?.value?.ownerActor ?? previous?.actor ?? event.actor;
+      const nextName =
+        typeof event.value.name === "string" && event.value.name.trim()
+          ? event.value.name.trim()
+          : previous?.value?.name ?? "Untitled book club";
+      const nextMeetingAt =
+        typeof event.value.nextMeetingAt === "string"
+          ? event.value.nextMeetingAt
+          : previous?.value?.nextMeetingAt ?? "";
+      const nextMeetingLocation =
+        typeof event.value.nextMeetingLocation === "string"
+          ? event.value.nextMeetingLocation
+          : previous?.value?.nextMeetingLocation ?? "";
+      const allowedGenres =
+        typeof event.value.allowedGenres === "string"
+          ? event.value.allowedGenres
+          : previous?.value?.allowedGenres ?? "";
+      const nextBook =
+        typeof event.value.nextBook === "string"
+          ? event.value.nextBook
+          : previous?.value?.nextBook ?? "";
+      byChannel.set(channel, {
+        ...event,
+        value: {
+          ...event.value,
+          name: nextName,
+          ownerActor,
+          nextMeetingAt,
+          nextMeetingLocation,
+          allowedGenres,
+          nextBook,
+          activity,
+          channel,
+        },
+      });
+    }
+    return [...byChannel.values()].toSorted((a, b) => (b.value.published ?? 0) - (a.value.published ?? 0));
+  });
 
   const clubForActiveChat = computed(() => {
     const ch = activeClubChannel.value;
@@ -274,6 +338,33 @@ export function useShelfTalk() {
   const threadHeadTitle = computed(() => {
     if (!activeClubChannel.value) return "";
     return clubForActiveChat.value?.value?.name ?? "Book club chat";
+  });
+
+  const activeClubOwnerActor = computed(() => {
+    const club = clubForActiveChat.value;
+    if (!club) return null;
+    return club.value?.ownerActor ?? club.actor ?? null;
+  });
+
+  const userCanManageActiveClub = computed(
+    () =>
+      Boolean(
+        session.value?.actor &&
+          activeClubOwnerActor.value &&
+          session.value.actor === activeClubOwnerActor.value,
+      ),
+  );
+
+  const activeClubSettings = computed(() => {
+    const value = clubForActiveChat.value?.value;
+    if (!value) return null;
+    return {
+      name: value.name ?? "",
+      nextMeetingAt: value.nextMeetingAt ?? "",
+      nextMeetingLocation: value.nextMeetingLocation ?? "",
+      allowedGenres: value.allowedGenres ?? "",
+      nextBook: value.nextBook ?? "",
+    };
   });
 
   const dmChannelPreview = computed(() => {
@@ -557,6 +648,11 @@ export function useShelfTalk() {
             type: "BookClub",
             name,
             channel: crypto.randomUUID(),
+            ownerActor: session.value.actor,
+            nextMeetingAt: "",
+            nextMeetingLocation: "",
+            allowedGenres: "",
+            nextBook: "",
             published: Date.now(),
           },
           channels: [BOOK_CLUB_DIRECTORY],
@@ -569,6 +665,98 @@ export function useShelfTalk() {
         e instanceof Error ? e.message : "Could not create this book club.";
     } finally {
       isCreatingClub.value = false;
+    }
+  }
+
+  watch(
+    () => clubForActiveChat.value?.url,
+    () => {
+      const settings = activeClubSettings.value;
+      clubSettingsName.value = settings?.name ?? "";
+      clubSettingsNextMeetingAt.value = settings?.nextMeetingAt ?? "";
+      clubSettingsNextMeetingLocation.value = settings?.nextMeetingLocation ?? "";
+      clubSettingsAllowedGenres.value = settings?.allowedGenres ?? "";
+      clubSettingsNextBook.value = settings?.nextBook ?? "";
+      showClubSettingsEditor.value = false;
+      clubSettingsError.value = "";
+    },
+    { immediate: true },
+  );
+
+  function toggleClubSettingsEditor() {
+    if (!userCanManageActiveClub.value) return;
+    showClubSettingsEditor.value = !showClubSettingsEditor.value;
+    if (!showClubSettingsEditor.value) {
+      const settings = activeClubSettings.value;
+      clubSettingsName.value = settings?.name ?? "";
+      clubSettingsNextMeetingAt.value = settings?.nextMeetingAt ?? "";
+      clubSettingsNextMeetingLocation.value = settings?.nextMeetingLocation ?? "";
+      clubSettingsAllowedGenres.value = settings?.allowedGenres ?? "";
+      clubSettingsNextBook.value = settings?.nextBook ?? "";
+    }
+    clubSettingsError.value = "";
+  }
+
+  async function saveActiveClubSettings() {
+    if (!session.value || !clubForActiveChat.value || !userCanManageActiveClub.value) return;
+    const name = clubSettingsName.value.trim();
+    if (!name) {
+      clubSettingsError.value = "Club name cannot be empty.";
+      return;
+    }
+    clubSettingsError.value = "";
+    isSavingClubSettings.value = true;
+    try {
+      await graffiti.post(
+        {
+          value: {
+            activity: "Update",
+            type: "BookClub",
+            channel: clubForActiveChat.value.value.channel,
+            name,
+            ownerActor: activeClubOwnerActor.value,
+            nextMeetingAt: clubSettingsNextMeetingAt.value.trim(),
+            nextMeetingLocation: clubSettingsNextMeetingLocation.value.trim(),
+            allowedGenres: clubSettingsAllowedGenres.value.trim(),
+            nextBook: clubSettingsNextBook.value.trim(),
+            published: Date.now(),
+          },
+          channels: [BOOK_CLUB_DIRECTORY],
+        },
+        session.value,
+      );
+    } catch (e) {
+      clubSettingsError.value =
+        e instanceof Error ? e.message : "Could not save club settings.";
+    } finally {
+      isSavingClubSettings.value = false;
+    }
+  }
+
+  async function deleteActiveClub() {
+    if (!session.value || !clubForActiveChat.value || !userCanManageActiveClub.value) return;
+    clubSettingsError.value = "";
+    isDeletingClub.value = true;
+    try {
+      await graffiti.post(
+        {
+          value: {
+            activity: "Delete",
+            type: "BookClub",
+            channel: clubForActiveChat.value.value.channel,
+            ownerActor: activeClubOwnerActor.value,
+            published: Date.now(),
+          },
+          channels: [BOOK_CLUB_DIRECTORY],
+        },
+        session.value,
+      );
+      await router.push({ name: "home" });
+    } catch (e) {
+      clubSettingsError.value =
+        e instanceof Error ? e.message : "Could not delete this book club.";
+    } finally {
+      isDeletingClub.value = false;
     }
   }
 
@@ -648,6 +836,9 @@ export function useShelfTalk() {
   function dismissDeleteError() {
     deleteError.value = "";
   }
+  function dismissClubSettingsError() {
+    clubSettingsError.value = "";
+  }
 
   return {
     BOOK_CLUB_DIRECTORY,
@@ -671,12 +862,27 @@ export function useShelfTalk() {
     dmChannelPreview,
     clubForActiveChat,
     threadHeadTitle,
+    activeClubOwnerActor,
+    userCanManageActiveClub,
+    activeClubSettings,
     sortedClubs,
     clubsLoading,
     newClubName,
     isCreatingClub,
     createClubError,
     createBookClub,
+    clubSettingsName,
+    clubSettingsNextMeetingAt,
+    clubSettingsNextMeetingLocation,
+    clubSettingsAllowedGenres,
+    clubSettingsNextBook,
+    showClubSettingsEditor,
+    clubSettingsError,
+    isSavingClubSettings,
+    isDeletingClub,
+    toggleClubSettingsEditor,
+    saveActiveClubSettings,
+    deleteActiveClub,
     sortedMessages,
     isMessageThreadLoading,
     myMessage,
@@ -694,6 +900,7 @@ export function useShelfTalk() {
     dismissCreateError,
     dismissSendError,
     dismissDeleteError,
+    dismissClubSettingsError,
     profilePollLoading,
     myCurrentlyReading,
     myBooksByStatus,
