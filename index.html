@@ -48,13 +48,19 @@
             </div>
           </div>
           <nav class="app-nav" aria-label="Primary">
-            <router-link class="nav-pill" to="/" exact-active-class="nav-pill-active">Home</router-link>
+            <router-link
+              class="nav-pill"
+              :to="{ name: 'clubs' }"
+              :class="{ 'nav-pill-active': $route.name === 'clubs' || $route.name === 'chat' }"
+              >Book clubs</router-link
+            >
             <router-link
               v-if="$graffitiSession.value"
               class="nav-pill"
-              to="/dms"
-              active-class="nav-pill-active"
-              >Messages</router-link>
+              :to="{ name: 'dms' }"
+              :class="{ 'nav-pill-active': $route.name === 'dms' || $route.name === 'dm' }"
+              >Messages</router-link
+            >
             <router-link class="nav-pill" to="/about" active-class="nav-pill-active">About</router-link>
           </nav>
           <div class="session-actions">
@@ -104,402 +110,539 @@
           <router-view></router-view>
         </main>
 
-        <div v-else class="workspace">
-          <aside class="sidebar" aria-label="Book clubs and your reading list">
-            <section class="profile-panel" aria-labelledby="reading-heading">
-              <div class="panel-head">
-                <h2 id="reading-heading">Currently reading</h2>
-                <p class="hint">
-                  Saved to your
-                  <router-link
-                    :to="channelInfoRoute(profileChannel, 'Profile channel', 'Stores your currently-reading list and DM index')"
-                    >profile channel</router-link
-                  >
-                  — visible to anyone who looks up your reader profile.
-                </p>
-                <router-link class="btn btn-ghost btn-tiny" :to="{ name: 'books' }">Open bookshelf page</router-link>
-              </div>
-
-              <div
-                v-if="profileError"
-                class="banner banner-error profile-banner"
-                role="alert"
+        <div v-else class="workspace workspace-shell">
+          <aside class="sidebar sidebar-rail sidebar-menu" aria-label="App menu">
+            <p class="sidebar-menu-title">Menu</p>
+            <nav class="sidebar-nav" aria-label="ShelfTalk sections">
+              <router-link
+                class="sidebar-nav-item"
+                :class="{ 'sidebar-nav-item-active': $route.name === 'clubs' || $route.name === 'chat' }"
+                :to="{ name: 'clubs' }"
               >
-                <span>{{ profileError }}</span>
-                <button type="button" class="btn btn-ghost btn-tiny" @click="dismissProfileError">
-                  Dismiss
-                </button>
-              </div>
-
-              <div v-if="profilePollLoading" class="loading-block">
-                <span class="spinner" aria-hidden="true"></span>
-                <span>Loading your books…</span>
-              </div>
-              <div v-else class="profile-status-sections">
-                <section class="profile-status-section" aria-labelledby="my-reading-heading">
-                  <h3 id="my-reading-heading" class="panel-subhead">Currently reading</h3>
-                  <ul class="reading-list" role="list">
-                    <li v-if="!myBooksByStatus.reading.length" class="empty">No books in this section.</li>
-                    <li v-for="book of myBooksByStatus.reading" :key="book.url" class="reading-row">
-                      <div class="reading-main">
-                        <span class="reading-title">{{ book.value.title }}</span>
-                        <span v-if="book.value.isbn" class="reading-isbn">{{ book.value.isbn }}</span>
-                        <span class="reading-status-pill status-reading">Reading</span>
-                        <div v-if="book.value.totalPages > 0" class="reading-progress">
-                          <span class="reading-stat">Current page: {{ book.value.currentPage ?? 0 }}</span>
-                          <span class="reading-stat">Total pages: {{ book.value.totalPages }}</span>
-                          <span
-                            class="progress-meter"
-                            role="img"
-                            :aria-label="`Progress: ${Math.min(100, Math.round(((book.value.currentPage ?? 0) / book.value.totalPages) * 100))} percent`"
-                          >
-                            <span
-                              class="progress-fill"
-                              :style="{
-                                width:
-                                  Math.min(
-                                    100,
-                                    Math.round(
-                                      ((book.value.currentPage ?? 0) / book.value.totalPages) * 100,
-                                    ),
-                                  ) + '%',
-                              }"
-                            ></span>
-                          </span>
-                        </div>
-                        <div v-else-if="book.value.currentPage != null" class="reading-progress">
-                          <span class="reading-stat">Current page: {{ book.value.currentPage }}</span>
-                        </div>
-                        <div class="book-update-actions">
-                          <label class="field compact">
-                            <span class="field-label tiny">Update page</span>
-                            <input
-                              :value="bookPageDrafts[book.url] ?? book.value.currentPage ?? ''"
-                              @focus="ensureBookPageDraft(book)"
-                              @input="setBookPageDraft(book.url, $event.target.value)"
-                              type="number"
-                              min="0"
-                              placeholder="Current page"
-                            />
-                          </label>
-                          <div class="book-update-buttons">
-                            <button
-                              type="button"
-                              class="btn btn-ghost btn-tiny"
-                              @click="updateCurrentPage(book)"
-                              :disabled="isUpdatingBook.has(book.url)"
-                            >
-                              {{ isUpdatingBook.has(book.url) ? "Saving…" : "Save page" }}
-                            </button>
-                            <button
-                              type="button"
-                              class="btn btn-ghost btn-tiny"
-                              @click="markBookFinished(book)"
-                              :disabled="isUpdatingBook.has(book.url)"
-                            >
-                              Finish
-                            </button>
-                            <button
-                              type="button"
-                              class="btn btn-ghost btn-tiny danger"
-                              @click="markBookDnf(book)"
-                              :disabled="isUpdatingBook.has(book.url)"
-                            >
-                              DNF
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        class="btn btn-ghost btn-tiny danger"
-                        @click="removeCurrentlyReadingBook(book)"
-                        :disabled="isRemovingBook.has(book.url) || isUpdatingBook.has(book.url)"
-                      >
-                        {{ isRemovingBook.has(book.url) ? "Removing…" : "Remove" }}
-                      </button>
-                    </li>
-                  </ul>
-                </section>
-
-                <section class="profile-status-section" aria-labelledby="my-finished-heading">
-                  <h3 id="my-finished-heading" class="panel-subhead">Finished</h3>
-                  <ul class="reading-list" role="list">
-                    <li v-if="!myBooksByStatus.finished.length" class="empty">No books in this section.</li>
-                    <li v-for="book of myBooksByStatus.finished" :key="book.url" class="reading-row">
-                      <div class="reading-main">
-                        <span class="reading-title">{{ book.value.title }}</span>
-                        <span v-if="book.value.isbn" class="reading-isbn">{{ book.value.isbn }}</span>
-                        <span class="reading-status-pill status-finished">Finished</span>
-                        <div v-if="book.value.totalPages > 0" class="reading-progress">
-                          <span class="reading-stat">Current page: {{ book.value.currentPage ?? 0 }}</span>
-                          <span class="reading-stat">Total pages: {{ book.value.totalPages }}</span>
-                        </div>
-                        <div v-else-if="book.value.currentPage != null" class="reading-progress">
-                          <span class="reading-stat">Current page: {{ book.value.currentPage }}</span>
-                        </div>
-                        <div class="book-update-buttons">
-                          <button
-                            type="button"
-                            class="btn btn-ghost btn-tiny"
-                            @click="markBookReading(book)"
-                            :disabled="isUpdatingBook.has(book.url)"
-                          >
-                            Mark reading
-                          </button>
-                          <button
-                            type="button"
-                            class="btn btn-ghost btn-tiny danger"
-                            @click="markBookDnf(book)"
-                            :disabled="isUpdatingBook.has(book.url)"
-                          >
-                            DNF
-                          </button>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        class="btn btn-ghost btn-tiny danger"
-                        @click="removeCurrentlyReadingBook(book)"
-                        :disabled="isRemovingBook.has(book.url) || isUpdatingBook.has(book.url)"
-                      >
-                        {{ isRemovingBook.has(book.url) ? "Removing…" : "Remove" }}
-                      </button>
-                    </li>
-                  </ul>
-                </section>
-
-                <section class="profile-status-section" aria-labelledby="my-dnf-heading">
-                  <h3 id="my-dnf-heading" class="panel-subhead">DNF</h3>
-                  <ul class="reading-list" role="list">
-                    <li v-if="!myBooksByStatus.dnf.length" class="empty">No books in this section.</li>
-                    <li v-for="book of myBooksByStatus.dnf" :key="book.url" class="reading-row">
-                      <div class="reading-main">
-                        <span class="reading-title">{{ book.value.title }}</span>
-                        <span v-if="book.value.isbn" class="reading-isbn">{{ book.value.isbn }}</span>
-                        <span class="reading-status-pill status-dnf">DNF</span>
-                        <div v-if="book.value.totalPages > 0" class="reading-progress">
-                          <span class="reading-stat">Current page: {{ book.value.currentPage ?? 0 }}</span>
-                          <span class="reading-stat">Total pages: {{ book.value.totalPages }}</span>
-                        </div>
-                        <div v-else-if="book.value.currentPage != null" class="reading-progress">
-                          <span class="reading-stat">Current page: {{ book.value.currentPage }}</span>
-                        </div>
-                        <div class="book-update-buttons">
-                          <button
-                            type="button"
-                            class="btn btn-ghost btn-tiny"
-                            @click="markBookReading(book)"
-                            :disabled="isUpdatingBook.has(book.url)"
-                          >
-                            Mark reading
-                          </button>
-                          <button
-                            type="button"
-                            class="btn btn-ghost btn-tiny"
-                            @click="markBookFinished(book)"
-                            :disabled="isUpdatingBook.has(book.url)"
-                          >
-                            Finish
-                          </button>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        class="btn btn-ghost btn-tiny danger"
-                        @click="removeCurrentlyReadingBook(book)"
-                        :disabled="isRemovingBook.has(book.url) || isUpdatingBook.has(book.url)"
-                      >
-                        {{ isRemovingBook.has(book.url) ? "Removing…" : "Remove" }}
-                      </button>
-                    </li>
-                  </ul>
-                </section>
-              </div>
-
-              <button
-                type="button"
-                class="btn btn-ghost btn-tiny"
-                @click="toggleAddBookForm"
+                Book clubs
+              </router-link>
+              <router-link
+                class="sidebar-nav-item"
+                :class="{ 'sidebar-nav-item-active': $route.name === 'library' }"
+                :to="{ name: 'library' }"
               >
-                {{ showAddBookForm ? "Close add book form" : "Add a book" }}
-              </button>
-
-              <form v-if="showAddBookForm" class="add-book-form" @submit.prevent="addCurrentlyReadingBook">
-                <label class="field">
-                  <span class="sr-only">Title</span>
-                  <input
-                    v-model="newBookTitle"
-                    type="text"
-                    name="book-title"
-                    autocomplete="off"
-                    placeholder="Title"
-                    maxlength="200"
-                    required
-                  />
-                </label>
-                <label class="field">
-                  <span class="sr-only">ISBN (optional)</span>
-                  <input
-                    v-model="newBookIsbn"
-                    type="text"
-                    name="book-isbn"
-                    autocomplete="off"
-                    placeholder="ISBN or ID (optional)"
-                    maxlength="32"
-                  />
-                </label>
-                <div class="inline-fields">
-                  <label class="field">
-                    <span class="field-label tiny">Current page</span>
-                    <input
-                      v-model="newBookCurrentPage"
-                      type="number"
-                      name="book-current-page"
-                      min="0"
-                      placeholder="—"
-                    />
-                  </label>
-                  <label class="field">
-                    <span class="field-label tiny">Total pages</span>
-                    <input
-                      v-model="newBookTotalPages"
-                      type="number"
-                      name="book-total-pages"
-                      min="0"
-                      placeholder="—"
-                    />
-                  </label>
-                </div>
-                <button
-                  type="submit"
-                  class="btn btn-primary"
-                  :disabled="!newBookTitle.trim() || isAddingBook"
-                >
-                  {{ isAddingBook ? "Adding…" : "Add to profile" }}
-                </button>
-              </form>
-            </section>
-
-            <div class="sidebar-divider" role="presentation"></div>
-
-            <section class="dm-sidebar" aria-labelledby="dm-heading">
-              <div class="panel-head">
-                <h2 id="dm-heading">Direct messages</h2>
-                <p class="hint">Private thread with another reader—only the two of you share the channel.</p>
-              </div>
-              <router-link class="btn btn-primary dm-inbox-btn" to="/dms">Open message inbox</router-link>
-            </section>
-
-            <div class="sidebar-divider" role="presentation"></div>
-
-            <div class="panel-head">
-              <h2>Book clubs</h2>
-              <p class="hint">Listed in the shared discovery channel for this prototype.</p>
-            </div>
-
-            <label class="field">
-              <span class="field-label">Search clubs</span>
-              <input
-                v-model="clubSearchQuery"
-                type="search"
-                name="club-search"
-                autocomplete="off"
-                placeholder="Search by title"
-              />
-            </label>
-
-            <button
-              type="button"
-              class="btn btn-ghost btn-tiny"
-              @click="toggleCreateClubForm"
-            >
-              {{ showCreateClubForm ? "Close create club form" : "Create a club" }}
-            </button>
-
-            <form v-if="showCreateClubForm" class="create-club" @submit.prevent="createBookClub">
-              <label class="field">
-                <span class="field-label">Start a club</span>
-                <input
-                  v-model="newClubName"
-                  type="text"
-                  name="club-name"
-                  autocomplete="off"
-                  placeholder="e.g. April sci-fi picks"
-                  maxlength="80"
-                />
-              </label>
-              <button
-                type="submit"
-                class="btn btn-primary"
-                :disabled="!newClubName.trim() || isCreatingClub"
+                My library
+              </router-link>
+              <router-link
+                class="sidebar-nav-item"
+                :class="{ 'sidebar-nav-item-active': $route.name === 'dms' || $route.name === 'dm' }"
+                :to="{ name: 'dms' }"
               >
-                {{ isCreatingClub ? "Creating…" : "Create club" }}
-              </button>
-            </form>
-
-            <div
-              v-if="createClubError"
-              class="banner banner-error"
-              role="alert"
-            >
-              <span>{{ createClubError }}</span>
-              <button type="button" class="btn btn-ghost btn-tiny" @click="dismissCreateError">
-                Dismiss
-              </button>
+                Direct messages
+              </router-link>
+              <router-link
+                class="sidebar-nav-item"
+                :class="{ 'sidebar-nav-item-active': $route.name === 'join' }"
+                :to="{ name: 'join' }"
+              >
+                Join a book club
+              </router-link>
+            </nav>
+            <div class="sidebar-menu-footer">
+              <router-link class="btn btn-ghost btn-tiny" :to="{ name: 'books' }">Full bookshelf</router-link>
+              <router-link class="btn btn-ghost btn-tiny" to="/about">About</router-link>
             </div>
-
-            <div v-if="clubsLoading" class="loading-block">
-              <span class="spinner" aria-hidden="true"></span>
-              <span>Loading clubs…</span>
-            </div>
-            <ul v-else class="club-list" role="list">
-              <li v-if="!filteredClubs.length" class="empty">No matching clubs found.</li>
-              <li v-for="club of filteredClubs" :key="club.url">
-                <div
-                  class="club-row"
-                  :class="{ active: $route.name === 'chat' && $route.params.chatId === club.value.channel }"
-                >
-                  <router-link class="club-row-link" :to="{ name: 'chat', params: { chatId: club.value.channel } }">
-                    <span class="club-name">{{ club.value.name }}</span>
-                    <span class="club-meta">Updated {{ new Date(club.value.published).toLocaleString() }}</span>
-                  </router-link>
-                  <button
-                    v-if="!isMemberOfClub(club.value.channel)"
-                    type="button"
-                    class="btn btn-ghost btn-tiny"
-                    :disabled="isUpdatingMembership.has(club.value.channel)"
-                    @click="joinClub(club.value.channel)"
-                  >
-                    {{ isUpdatingMembership.has(club.value.channel) ? "Joining…" : "Join" }}
-                  </button>
-                  <span v-else class="club-member-pill">Member</span>
-                </div>
-              </li>
-            </ul>
-
-            <p class="fine-print">
-              <router-link to="/about">About</router-link>
-              ·
+            <p class="fine-print fine-print--sidebar">
               <a href="writeup.html">Design write-up</a>
-              · Spoiler reveal state is local to your browser (intermediate fidelity).
+              · Spoiler state is local to your browser.
             </p>
           </aside>
 
-          <main id="main" class="thread" tabindex="-1">
+          <main id="main" class="thread thread-main" tabindex="-1">
             <router-view></router-view>
           </main>
         </div>
       </div>
     </template>
 
-    <template id="tpl-home">
-      <div class="thread-empty">
-        <h2>Choose a club</h2>
-        <p>Select a book club on the left or create a new one to open its conversation.</p>
-        <p class="hint">Each club has its own URL you can bookmark or share, for example <code>#/chat/&lt;channel-id&gt;</code>.</p>
+    <template id="tpl-panel-clubs">
+      <div class="panel-page">
+        <header class="panel-page-head">
+          <h2>Book clubs</h2>
+          <p class="hint">
+            Rooms you belong to (as a member or owner). Open a club to chat. To discover new clubs or create one, use
+            <router-link :to="{ name: 'join' }">Join a book club</router-link>
+            in the menu.
+          </p>
+        </header>
+
+        <label class="field field--compact">
+          <span class="field-label">Search your clubs</span>
+          <input
+            v-model="myClubsSearchQuery"
+            type="search"
+            name="my-club-search"
+            autocomplete="off"
+            placeholder="Filter by title"
+          />
+        </label>
+
+        <div v-if="clubsLoading" class="loading-block">
+          <span class="spinner" aria-hidden="true"></span>
+          <span>Loading clubs…</span>
+        </div>
+        <ul v-else class="club-list club-list--panel" role="list">
+          <li v-if="!myFilteredMemberClubs.length" class="empty">
+            You are not in any clubs yet. Open <strong>Join a book club</strong> to browse the directory or start a new
+            room.
+          </li>
+          <li v-for="club of myFilteredMemberClubs" :key="club.url">
+            <div
+              class="club-row"
+              :class="{ active: $route.name === 'chat' && $route.params.chatId === club.value.channel }"
+            >
+              <router-link class="club-row-link" :to="{ name: 'chat', params: { chatId: club.value.channel } }">
+                <span class="club-name">{{ club.value.name }}</span>
+                <span class="club-meta">Updated {{ new Date(club.value.published).toLocaleString() }}</span>
+              </router-link>
+              <span v-if="isClubOwner(club)" class="club-owner-pill">Owner</span>
+              <span v-else class="club-member-pill">Member</span>
+            </div>
+          </li>
+        </ul>
+
+        <p class="fine-print">
+          <router-link to="/about">About</router-link>
+          ·
+          <a href="writeup.html">Design write-up</a>
+          · Spoiler reveal state is local to your browser (intermediate fidelity).
+        </p>
       </div>
     </template>
+
+    <template id="tpl-panel-library">
+      <div class="panel-page">
+        <header class="panel-page-head">
+          <h2 id="reading-heading">My library</h2>
+          <p class="hint">
+            Saved on your
+            <router-link
+              :to="channelInfoRoute(profileChannel, 'Profile channel', 'Stores your currently-reading list and DM index')"
+              >profile channel</router-link
+            >. Visible to anyone who looks up your reader profile.
+            <router-link class="btn btn-ghost btn-tiny panel-page-inline-link" :to="{ name: 'books' }"
+              >Open full bookshelf</router-link
+            >
+          </p>
+        </header>
+
+        <section class="profile-panel" aria-labelledby="reading-heading">
+          <div
+            v-if="profileError"
+            class="banner banner-error profile-banner"
+            role="alert"
+          >
+            <span>{{ profileError }}</span>
+            <button type="button" class="btn btn-ghost btn-tiny" @click="dismissProfileError">Dismiss</button>
+          </div>
+
+          <div v-if="profilePollLoading" class="loading-block">
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Loading your books…</span>
+          </div>
+          <div v-else class="profile-status-sections">
+            <section class="profile-status-section" aria-labelledby="my-reading-heading">
+              <h3 id="my-reading-heading" class="panel-subhead">Currently reading</h3>
+              <ul class="reading-list reading-list--panel" role="list">
+                <li v-if="!myBooksByStatus.reading.length" class="empty">No books in this section.</li>
+                <li v-for="book of myBooksByStatus.reading" :key="book.url" class="reading-row">
+                  <div class="reading-main">
+                    <span class="reading-title">{{ book.value.title }}</span>
+                    <span v-if="book.value.isbn" class="reading-isbn">{{ book.value.isbn }}</span>
+                    <span class="reading-status-pill status-reading">Reading</span>
+                    <div v-if="book.value.totalPages > 0" class="reading-progress">
+                      <span class="reading-stat">Current page: {{ book.value.currentPage ?? 0 }}</span>
+                      <span class="reading-stat">Total pages: {{ book.value.totalPages }}</span>
+                      <span
+                        class="progress-meter"
+                        role="img"
+                        :aria-label="`Progress: ${Math.min(100, Math.round(((book.value.currentPage ?? 0) / book.value.totalPages) * 100))} percent`"
+                      >
+                        <span
+                          class="progress-fill"
+                          :style="{
+                            width:
+                              Math.min(
+                                100,
+                                Math.round(
+                                  ((book.value.currentPage ?? 0) / book.value.totalPages) * 100,
+                                ),
+                              ) + '%',
+                          }"
+                        ></span>
+                      </span>
+                    </div>
+                    <div v-else-if="book.value.currentPage != null" class="reading-progress">
+                      <span class="reading-stat">Current page: {{ book.value.currentPage }}</span>
+                    </div>
+                    <div class="book-update-actions">
+                      <label class="field compact">
+                        <span class="field-label tiny">Update page</span>
+                        <input
+                          :value="bookPageDrafts[book.url] ?? book.value.currentPage ?? ''"
+                          @focus="ensureBookPageDraft(book)"
+                          @input="setBookPageDraft(book.url, $event.target.value)"
+                          type="number"
+                          min="0"
+                          placeholder="Current page"
+                        />
+                      </label>
+                      <div class="book-update-buttons">
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-tiny"
+                          @click="updateCurrentPage(book)"
+                          :disabled="isUpdatingBook.has(book.url)"
+                        >
+                          {{ isUpdatingBook.has(book.url) ? "Saving…" : "Save page" }}
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-tiny"
+                          @click="markBookFinished(book)"
+                          :disabled="isUpdatingBook.has(book.url)"
+                        >
+                          Finish
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-tiny danger"
+                          @click="markBookDnf(book)"
+                          :disabled="isUpdatingBook.has(book.url)"
+                        >
+                          DNF
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-tiny danger"
+                    @click="removeCurrentlyReadingBook(book)"
+                    :disabled="isRemovingBook.has(book.url) || isUpdatingBook.has(book.url)"
+                  >
+                    {{ isRemovingBook.has(book.url) ? "Removing…" : "Remove" }}
+                  </button>
+                </li>
+              </ul>
+            </section>
+
+            <section class="profile-status-section" aria-labelledby="my-finished-heading">
+              <h3 id="my-finished-heading" class="panel-subhead">Finished</h3>
+              <ul class="reading-list reading-list--panel" role="list">
+                <li v-if="!myBooksByStatus.finished.length" class="empty">No books in this section.</li>
+                <li v-for="book of myBooksByStatus.finished" :key="book.url" class="reading-row">
+                  <div class="reading-main">
+                    <span class="reading-title">{{ book.value.title }}</span>
+                    <span v-if="book.value.isbn" class="reading-isbn">{{ book.value.isbn }}</span>
+                    <span class="reading-status-pill status-finished">Finished</span>
+                    <div v-if="book.value.totalPages > 0" class="reading-progress">
+                      <span class="reading-stat">Current page: {{ book.value.currentPage ?? 0 }}</span>
+                      <span class="reading-stat">Total pages: {{ book.value.totalPages }}</span>
+                    </div>
+                    <div v-else-if="book.value.currentPage != null" class="reading-progress">
+                      <span class="reading-stat">Current page: {{ book.value.currentPage }}</span>
+                    </div>
+                    <div class="book-update-buttons">
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-tiny"
+                        @click="markBookReading(book)"
+                        :disabled="isUpdatingBook.has(book.url)"
+                      >
+                        Mark reading
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-tiny danger"
+                        @click="markBookDnf(book)"
+                        :disabled="isUpdatingBook.has(book.url)"
+                      >
+                        DNF
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-tiny danger"
+                    @click="removeCurrentlyReadingBook(book)"
+                    :disabled="isRemovingBook.has(book.url) || isUpdatingBook.has(book.url)"
+                  >
+                    {{ isRemovingBook.has(book.url) ? "Removing…" : "Remove" }}
+                  </button>
+                </li>
+              </ul>
+            </section>
+
+            <section class="profile-status-section" aria-labelledby="my-dnf-heading">
+              <h3 id="my-dnf-heading" class="panel-subhead">DNF</h3>
+              <ul class="reading-list reading-list--panel" role="list">
+                <li v-if="!myBooksByStatus.dnf.length" class="empty">No books in this section.</li>
+                <li v-for="book of myBooksByStatus.dnf" :key="book.url" class="reading-row">
+                  <div class="reading-main">
+                    <span class="reading-title">{{ book.value.title }}</span>
+                    <span v-if="book.value.isbn" class="reading-isbn">{{ book.value.isbn }}</span>
+                    <span class="reading-status-pill status-dnf">DNF</span>
+                    <div v-if="book.value.totalPages > 0" class="reading-progress">
+                      <span class="reading-stat">Current page: {{ book.value.currentPage ?? 0 }}</span>
+                      <span class="reading-stat">Total pages: {{ book.value.totalPages }}</span>
+                    </div>
+                    <div v-else-if="book.value.currentPage != null" class="reading-progress">
+                      <span class="reading-stat">Current page: {{ book.value.currentPage }}</span>
+                    </div>
+                    <div class="book-update-buttons">
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-tiny"
+                        @click="markBookReading(book)"
+                        :disabled="isUpdatingBook.has(book.url)"
+                      >
+                        Mark reading
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-tiny"
+                        @click="markBookFinished(book)"
+                        :disabled="isUpdatingBook.has(book.url)"
+                      >
+                        Finish
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-tiny danger"
+                    @click="removeCurrentlyReadingBook(book)"
+                    :disabled="isRemovingBook.has(book.url) || isUpdatingBook.has(book.url)"
+                  >
+                    {{ isRemovingBook.has(book.url) ? "Removing…" : "Remove" }}
+                  </button>
+                </li>
+              </ul>
+            </section>
+          </div>
+
+          <button type="button" class="btn btn-ghost btn-tiny" @click="toggleAddBookForm">
+            {{ showAddBookForm ? "Close add book form" : "Add a book" }}
+          </button>
+
+          <form v-if="showAddBookForm" class="add-book-form" @submit.prevent="addCurrentlyReadingBook">
+            <div class="books-api-panel" aria-labelledby="ol-search-heading">
+              <h3 id="ol-search-heading" class="panel-subhead">Look up a book</h3>
+              <p class="hint hint--tight">
+                Search pulls titles and ISBNs from the
+                <a href="https://openlibrary.org/" target="_blank" rel="noopener noreferrer">Open Library</a> public
+                catalog. Pick a result to fill the form below (you can still edit before saving).
+              </p>
+              <div class="books-api-search-row">
+                <label class="field field--compact books-api-search-field">
+                  <span class="field-label">Search by title or author</span>
+                  <input
+                    v-model="openLibrarySearchInput"
+                    type="search"
+                    name="open-library-query"
+                    autocomplete="off"
+                    placeholder="e.g. Le Guin Dispossessed"
+                    maxlength="200"
+                    @keydown.enter.prevent="runOpenLibraryBookSearch"
+                  />
+                </label>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-tiny books-api-search-btn"
+                  :disabled="openLibrarySearching"
+                  @click="runOpenLibraryBookSearch"
+                >
+                  {{ openLibrarySearching ? "Searching…" : "Search" }}
+                </button>
+              </div>
+              <p v-if="openLibrarySearchError" class="banner banner-error books-api-banner" role="alert">
+                {{ openLibrarySearchError }}
+              </p>
+              <ul v-if="openLibraryHits.length" class="book-search-hits" role="list">
+                <li v-for="hit of openLibraryHits" :key="hit.id">
+                  <button type="button" class="book-search-hit" @click="applyOpenLibraryHit(hit)">
+                    <span class="book-search-hit-title">{{ hit.title }}</span>
+                    <span class="book-search-hit-meta">
+                      <template v-if="hit.authorsLabel">{{ hit.authorsLabel }}</template>
+                      <template v-if="hit.firstYear"> · {{ hit.firstYear }}</template>
+                      <template v-if="hit.isbn"> · ISBN {{ hit.isbn }}</template>
+                      <template v-if="hit.totalPages"> · {{ hit.totalPages }} pages</template>
+                    </span>
+                  </button>
+                </li>
+              </ul>
+            </div>
+
+            <div class="sidebar-divider books-api-divider" role="presentation"></div>
+
+            <p class="field-label tiny">Add to your profile</p>
+            <label class="field">
+              <span class="sr-only">Title</span>
+              <input
+                v-model="newBookTitle"
+                type="text"
+                name="book-title"
+                autocomplete="off"
+                placeholder="Title"
+                maxlength="200"
+                required
+              />
+            </label>
+            <label class="field">
+              <span class="sr-only">ISBN (optional)</span>
+              <input
+                v-model="newBookIsbn"
+                type="text"
+                name="book-isbn"
+                autocomplete="off"
+                placeholder="ISBN or ID (optional)"
+                maxlength="32"
+              />
+            </label>
+            <div class="inline-fields">
+              <label class="field">
+                <span class="field-label tiny">Current page</span>
+                <input
+                  v-model="newBookCurrentPage"
+                  type="number"
+                  name="book-current-page"
+                  min="0"
+                  placeholder="—"
+                />
+              </label>
+              <label class="field">
+                <span class="field-label tiny">Total pages</span>
+                <input
+                  v-model="newBookTotalPages"
+                  type="number"
+                  name="book-total-pages"
+                  min="0"
+                  placeholder="—"
+                />
+              </label>
+            </div>
+            <button type="submit" class="btn btn-primary" :disabled="!newBookTitle.trim() || isAddingBook">
+              {{ isAddingBook ? "Adding…" : "Add to profile" }}
+            </button>
+          </form>
+        </section>
+      </div>
+    </template>
+
+    <template id="tpl-panel-join">
+      <div class="panel-page panel-page--join">
+        <header class="panel-page-head">
+          <h2>Join a book club</h2>
+          <p class="hint">Find an existing club to join, or start a new one for others to discover.</p>
+        </header>
+
+        <div v-if="createClubError" class="banner banner-error" role="alert">
+          <span>{{ createClubError }}</span>
+          <button type="button" class="btn btn-ghost btn-tiny" @click="dismissCreateError">Dismiss</button>
+        </div>
+
+        <div class="join-tabs" role="tablist" aria-label="Join options">
+          <button
+            type="button"
+            class="join-tab"
+            role="tab"
+            :aria-selected="joinTab === 'find'"
+            :class="{ 'join-tab-active': joinTab === 'find' }"
+            @click="joinTab = 'find'"
+          >
+            Find a club
+          </button>
+          <button
+            type="button"
+            class="join-tab"
+            role="tab"
+            :aria-selected="joinTab === 'create'"
+            :class="{ 'join-tab-active': joinTab === 'create' }"
+            @click="joinTab = 'create'"
+          >
+            Start a new club
+          </button>
+        </div>
+
+        <div v-show="joinTab === 'find'" class="join-panel join-panel--directory" role="tabpanel">
+          <p class="hint">
+            Only clubs you are <strong>not</strong> in yet. Join adds the room to
+            <strong>Book clubs</strong> in the menu; open it there to chat. Listed from
+            <code>{{ BOOK_CLUB_DIRECTORY }}</code>.
+          </p>
+
+          <label class="field field--compact">
+            <span class="field-label">Search clubs to join</span>
+            <input
+              v-model="clubSearchQuery"
+              type="search"
+              name="directory-club-search"
+              autocomplete="off"
+              placeholder="Filter by title"
+            />
+          </label>
+
+          <div v-if="clubsLoading" class="loading-block">
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Loading clubs…</span>
+          </div>
+          <ul v-else class="club-list club-list--panel club-list--join-directory" role="list">
+            <li v-if="!joinableDirectoryClubs.length" class="empty">
+              <span v-if="filteredClubs.length">
+                You are already in every club that matches this list. Open <strong>Book clubs</strong> in the menu to
+                pick a room.
+              </span>
+              <span v-else-if="clubSearchQuery.trim()">No clubs match your search in the directory.</span>
+              <span v-else>No clubs appear in the discovery directory yet.</span>
+            </li>
+            <li v-for="club of joinableDirectoryClubs" :key="club.url">
+              <div class="club-row club-row--join-offer">
+                <div class="club-row-join-info">
+                  <span class="club-name">{{ club.value.name }}</span>
+                  <span class="club-meta">Updated {{ new Date(club.value.published).toLocaleString() }}</span>
+                </div>
+                <button
+                  type="button"
+                  class="btn btn-primary btn-tiny"
+                  :disabled="isUpdatingMembership.has(club.value.channel)"
+                  @click="joinClub(club.value.channel)"
+                >
+                  {{ isUpdatingMembership.has(club.value.channel) ? "Joining…" : "Join" }}
+                </button>
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        <div v-show="joinTab === 'create'" class="join-panel" role="tabpanel">
+          <p class="hint">Create a club posts it to the discovery channel so other readers can find and join it.</p>
+          <form class="create-club" @submit.prevent="createBookClub">
+            <label class="field field--compact">
+              <span class="field-label">Club name</span>
+              <input
+                v-model="newClubName"
+                type="text"
+                name="join-club-name"
+                autocomplete="off"
+                placeholder="e.g. April sci-fi picks"
+                maxlength="80"
+              />
+            </label>
+            <button type="submit" class="btn btn-primary" :disabled="!newClubName.trim() || isCreatingClub">
+              {{ isCreatingClub ? "Creating…" : "Create club" }}
+            </button>
+          </form>
+        </div>
+      </div>
+    </template>
+
+
 
     <template id="tpl-about">
       <article class="about-page prose">
@@ -509,7 +652,9 @@
           each club’s messages live in a private channel, and readers can blur spoilers until others choose to reveal them.
         </p>
         <p>
-          Use <router-link to="/">Home</router-link> to pick a club. Each club opens at
+          Use <router-link :to="{ name: 'clubs' }">Book clubs</router-link> for rooms you already belong to, and
+          <router-link :to="{ name: 'join' }">Join a book club</router-link> to browse the directory or create a new
+          club. Each club opens at
           <code>#/chat/&lt;channel-uuid&gt;</code>, so you can bookmark or share a specific room once you know its id.
         </p>
       </article>
@@ -518,8 +663,8 @@
     <template id="tpl-books">
       <div class="thread-head">
         <div class="thread-head-actions">
-          <button type="button" class="btn btn-ghost back-link" @click="goBackOr({ name: 'home' })">Back</button>
-          <router-link class="btn btn-ghost btn-tiny" to="/">Home</router-link>
+          <button type="button" class="btn btn-ghost back-link" @click="goBackOr({ name: 'clubs' })">Back</button>
+          <router-link class="btn btn-ghost btn-tiny" :to="{ name: 'clubs' }">Book clubs</router-link>
         </div>
         <div>
           <h2>Bookshelf</h2>
@@ -577,10 +722,11 @@
     </template>
 
     <template id="tpl-chat">
-      <div class="thread-head">
+      <div class="thread-page thread-page--chat">
+      <div class="thread-head thread-head--chat">
         <div class="thread-head-actions">
-          <button type="button" class="btn btn-ghost back-link" @click="goBackOr({ name: 'home' })">Back</button>
-          <router-link class="btn btn-ghost btn-tiny" to="/">Clubs</router-link>
+          <button type="button" class="btn btn-ghost back-link" @click="goBackOr({ name: 'clubs' })">Back</button>
+          <router-link class="btn btn-ghost btn-tiny" :to="{ name: 'clubs' }">Book clubs</router-link>
         </div>
         <div>
           <h2>{{ threadHeadTitle }}</h2>
@@ -761,7 +907,8 @@
         </button>
       </div>
 
-      <section v-if="!activeClubRequiresJoin" class="messages" aria-label="Conversation" ref="messageViewportRef">
+      <div v-if="!activeClubRequiresJoin" class="thread-chat-fill">
+      <section class="messages" aria-label="Conversation" ref="messageViewportRef">
         <div v-if="isMessageThreadLoading" class="loading-block">
           <span class="spinner" aria-hidden="true"></span>
           <span>Loading messages…</span>
@@ -775,7 +922,7 @@
         </ul>
       </section>
 
-      <form v-if="!activeClubRequiresJoin" class="composer" @submit.prevent="sendMessage">
+      <form class="composer" @submit.prevent="sendMessage">
         <label class="field">
           <span class="field-label">Message</span>
           <textarea
@@ -844,13 +991,15 @@
           <span class="hint">You can remove your own messages if you sent something by mistake.</span>
         </div>
       </form>
+      </div>
+      </div>
     </template>
 
     <template id="tpl-reader">
       <div class="thread-head">
         <div class="thread-head-actions">
-          <button type="button" class="btn btn-ghost back-link" @click="goBackOr({ name: 'home' })">Back</button>
-          <router-link class="btn btn-ghost btn-tiny" to="/">Home</router-link>
+          <button type="button" class="btn btn-ghost back-link" @click="goBackOr({ name: 'clubs' })">Back</button>
+          <router-link class="btn btn-ghost btn-tiny" :to="{ name: 'clubs' }">Book clubs</router-link>
         </div>
         <div>
           <h2>Reader profile</h2>
@@ -981,7 +1130,7 @@
 
     <template id="tpl-dms">
       <div class="thread-head">
-        <router-link class="btn btn-ghost back-link" to="/">← Home</router-link>
+        <router-link class="btn btn-ghost back-link" :to="{ name: 'clubs' }">← Book clubs</router-link>
         <div>
           <h2>Direct messages</h2>
           <p class="hint">
@@ -1038,7 +1187,7 @@
       <div class="thread-head">
         <div class="thread-head-actions">
           <button type="button" class="btn btn-ghost back-link" @click="goBackOr({ name: 'dms' })">Back</button>
-          <router-link class="btn btn-ghost btn-tiny" to="/dms">Inbox</router-link>
+          <router-link class="btn btn-ghost btn-tiny" :to="{ name: 'dms' }">Inbox</router-link>
         </div>
         <div>
           <h2>Direct message</h2>
@@ -1177,7 +1326,7 @@
           >
             Copy channel id
           </button>
-          <router-link class="btn btn-ghost btn-tiny" to="/">Back home</router-link>
+          <router-link class="btn btn-ghost btn-tiny" :to="{ name: 'clubs' }">Back to clubs</router-link>
         </div>
         <p v-if="channelInfoCopyFeedback" class="hint">{{ channelInfoCopyFeedback }}</p>
       </article>

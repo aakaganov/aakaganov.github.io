@@ -11,7 +11,10 @@ function loadComponent(name) {
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [
-    { path: "/", name: "home", component: loadComponent("home") },
+    { path: "/", redirect: { name: "clubs" } },
+    { path: "/clubs", name: "clubs", component: loadComponent("clubs") },
+    { path: "/library", name: "library", component: loadComponent("library") },
+    { path: "/join", name: "join", component: loadComponent("join") },
     { path: "/about", name: "about", component: loadComponent("about") },
     { path: "/books", name: "books", component: loadComponent("books") },
     {

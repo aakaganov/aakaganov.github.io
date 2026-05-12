@@ -2,6 +2,7 @@ import { ref, computed, watch, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useGraffiti, useGraffitiSession, useGraffitiDiscover } from "@graffiti-garden/wrapper-vue";
 import { directMessageChannelId, peerToKey, keyToPeer } from "./directMessage.js";
+import { searchOpenLibraryBooks } from "./booksApi.js";
 
 /** Shared directory for book club listings (Part A "where" for discovery). */
 export const BOOK_CLUB_DIRECTORY = "bookclub-discovery";
@@ -202,7 +203,8 @@ export function useShelfTalk() {
 
   const newClubName = ref("");
   const clubSearchQuery = ref("");
-  const showCreateClubForm = ref(false);
+  /** Search filter for the Book clubs page (only clubs you belong to). */
+  const myClubsSearchQuery = ref("");
   const isCreatingClub = ref(false);
   const createClubError = ref("");
   const clubSettingsName = ref("");
@@ -210,7 +212,7 @@ export function useShelfTalk() {
   const clubSettingsNextMeetingLocation = ref("");
   const clubSettingsAllowedGenres = ref("");
   const clubSettingsNextBook = ref("");
-  const showClubSettingsPanel = ref(true);
+  const showClubSettingsPanel = ref(false);
   const showClubSettingsEditor = ref(false);
   const clubSettingsError = ref("");
   const isSavingClubSettings = ref(false);
@@ -254,6 +256,12 @@ export function useShelfTalk() {
   const newBookIsbn = ref("");
   const newBookCurrentPage = ref("");
   const newBookTotalPages = ref("");
+  const openLibrarySearchInput = ref("");
+  const openLibraryHits = ref([]);
+  const openLibrarySearching = ref(false);
+  const openLibrarySearchError = ref("");
+  /** @type {import('vue').Ref<AbortController | null>} */
+  const openLibrarySearchAbort = ref(null);
   const showAddBookForm = ref(false);
   const isAddingBook = ref(false);
   const profileError = ref("");
@@ -389,8 +397,38 @@ export function useShelfTalk() {
   const filteredClubs = computed(() => {
     const query = clubSearchQuery.value.trim().toLowerCase();
     if (!query) return sortedClubs.value;
-    return sortedClubs.value.filter((club) => club.value.name.toLowerCase().includes(query));
+    return sortedClubs.value.filter((club) =>
+      (club.value?.name ?? "").toLowerCase().includes(query),
+    );
   });
+
+  const myMemberClubs = computed(() => {
+    if (!session.value?.actor) return [];
+    return sortedClubs.value.filter((club) => {
+      const ch = club.value?.channel;
+      return typeof ch === "string" && ch && isMemberOfClub(ch);
+    });
+  });
+
+  const myFilteredMemberClubs = computed(() => {
+    const q = myClubsSearchQuery.value.trim().toLowerCase();
+    const list = myMemberClubs.value;
+    if (!q) return list;
+    return list.filter((c) => (c.value?.name ?? "").toLowerCase().includes(q));
+  });
+
+  const joinableDirectoryClubs = computed(() =>
+    filteredClubs.value.filter((club) => {
+      const ch = club.value?.channel;
+      return typeof ch === "string" && ch && !isMemberOfClub(ch);
+    }),
+  );
+
+  function isClubOwner(club) {
+    const actor = session.value?.actor;
+    const owner = club?.value?.ownerActor ?? club?.actor;
+    return Boolean(actor && owner && actor === owner);
+  }
 
   /** False while club directory is still loading so we do not hide the thread by mistake. */
   const activeClubRequiresJoin = computed(
@@ -828,7 +866,9 @@ export function useShelfTalk() {
         session.value,
       );
       newClubName.value = "";
-      showCreateClubForm.value = false;
+      if (route.name === "join") {
+        await router.push({ name: "clubs" });
+      }
     } catch (e) {
       createClubError.value =
         e instanceof Error ? e.message : "Could not create this book club.";
@@ -930,7 +970,7 @@ export function useShelfTalk() {
         },
         session.value,
       );
-      await router.push({ name: "home" });
+      await router.push({ name: "clubs" });
     } catch (e) {
       clubSettingsError.value =
         e instanceof Error ? e.message : "Could not delete this book club.";
@@ -997,7 +1037,7 @@ export function useShelfTalk() {
         },
         session.value,
       );
-      await router.push({ name: "home" });
+      await router.push({ name: "clubs" });
     } catch (e) {
       clubSettingsError.value = e instanceof Error ? e.message : "Could not leave this club.";
     } finally {
@@ -1115,6 +1155,43 @@ export function useShelfTalk() {
   function dismissCreateError() {
     createClubError.value = "";
   }
+  async function runOpenLibraryBookSearch() {
+    const q = openLibrarySearchInput.value.trim();
+    openLibrarySearchError.value = "";
+    openLibraryHits.value = [];
+    if (!q) {
+      openLibrarySearchError.value = "Enter a title or author to search Open Library.";
+      return;
+    }
+    openLibrarySearchAbort.value?.abort();
+    const ctl = new AbortController();
+    openLibrarySearchAbort.value = ctl;
+    openLibrarySearching.value = true;
+    try {
+      openLibraryHits.value = await searchOpenLibraryBooks(q, ctl.signal);
+      if (!openLibraryHits.value.length) {
+        openLibrarySearchError.value = "No results from Open Library for that search.";
+      }
+    } catch (e) {
+      if (e && typeof e === "object" && "name" in e && e.name === "AbortError") return;
+      openLibrarySearchError.value =
+        e instanceof Error ? e.message : "Could not reach Open Library. Check your connection.";
+    } finally {
+      openLibrarySearching.value = false;
+    }
+  }
+
+  function applyOpenLibraryHit(hit) {
+    if (!hit) return;
+    newBookTitle.value = String(hit.title ?? "").trim();
+    newBookIsbn.value = String(hit.isbn ?? "").trim();
+    if (hit.totalPages != null && hit.totalPages > 0) {
+      newBookTotalPages.value = String(hit.totalPages);
+    }
+    openLibraryHits.value = [];
+    openLibrarySearchError.value = "";
+  }
+
   function toggleAddBookForm() {
     showAddBookForm.value = !showAddBookForm.value;
     if (!showAddBookForm.value) {
@@ -1123,13 +1200,11 @@ export function useShelfTalk() {
       newBookCurrentPage.value = "";
       newBookTotalPages.value = "";
       profileError.value = "";
-    }
-  }
-  function toggleCreateClubForm() {
-    showCreateClubForm.value = !showCreateClubForm.value;
-    if (!showCreateClubForm.value) {
-      newClubName.value = "";
-      createClubError.value = "";
+      openLibrarySearchInput.value = "";
+      openLibraryHits.value = [];
+      openLibrarySearchError.value = "";
+      openLibrarySearchAbort.value?.abort();
+      openLibrarySearchAbort.value = null;
     }
   }
   function dismissSendError() {
@@ -1258,13 +1333,15 @@ export function useShelfTalk() {
     activeClubRequiresJoin,
     sortedClubs,
     filteredClubs,
+    myClubsSearchQuery,
+    myFilteredMemberClubs,
+    isClubOwner,
+    joinableDirectoryClubs,
     clubsLoading,
     clubSearchQuery,
     newClubName,
-    showCreateClubForm,
     isCreatingClub,
     createClubError,
-    toggleCreateClubForm,
     createBookClub,
     isUpdatingMembership,
     isMemberOfClub,
@@ -1318,6 +1395,12 @@ export function useShelfTalk() {
     newBookIsbn,
     newBookCurrentPage,
     newBookTotalPages,
+    openLibrarySearchInput,
+    openLibraryHits,
+    openLibrarySearching,
+    openLibrarySearchError,
+    runOpenLibraryBookSearch,
+    applyOpenLibraryHit,
     showAddBookForm,
     isAddingBook,
     profileError,
