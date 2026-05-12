@@ -100,9 +100,20 @@ export function useShelfTalk() {
   const route = useRoute();
   const router = useRouter();
 
-  /** Book-club thread channel when on <code>/chat/:chatId</code>. */
+  /** Book-club message channel only while on the chat thread (not the settings page). */
   const activeClubChannel = computed(() => {
     if (route.name === "chat" && route.params.chatId) {
+      return String(route.params.chatId);
+    }
+    return null;
+  });
+
+  /** Club id from URL on chat or club-settings routes (membership, metadata, settings UI). */
+  const clubChannelFromRoute = computed(() => {
+    if (
+      (route.name === "chat" || route.name === "chat-settings") &&
+      route.params.chatId
+    ) {
       return String(route.params.chatId);
     }
     return null;
@@ -212,7 +223,6 @@ export function useShelfTalk() {
   const clubSettingsNextMeetingLocation = ref("");
   const clubSettingsAllowedGenres = ref("");
   const clubSettingsNextBook = ref("");
-  const showClubSettingsPanel = ref(false);
   const showClubSettingsEditor = ref(false);
   const clubSettingsError = ref("");
   const isSavingClubSettings = ref(false);
@@ -433,19 +443,19 @@ export function useShelfTalk() {
   /** False while club directory is still loading so we do not hide the thread by mistake. */
   const activeClubRequiresJoin = computed(
     () =>
-      activeClubChannel.value != null &&
+      clubChannelFromRoute.value != null &&
       !clubsLoading.value &&
-      !isMemberOfClub(activeClubChannel.value),
+      !isMemberOfClub(clubChannelFromRoute.value),
   );
 
   const clubForActiveChat = computed(() => {
-    const ch = activeClubChannel.value;
+    const ch = clubChannelFromRoute.value;
     if (!ch) return null;
     return sortedClubs.value.find((c) => c.value.channel === ch) ?? null;
   });
 
   const threadHeadTitle = computed(() => {
-    if (!activeClubChannel.value) return "";
+    if (!clubChannelFromRoute.value) return "";
     return clubForActiveChat.value?.value?.name ?? "Book club chat";
   });
 
@@ -905,13 +915,6 @@ export function useShelfTalk() {
     }
     clubSettingsError.value = "";
   }
-  function toggleClubSettingsPanel() {
-    showClubSettingsPanel.value = !showClubSettingsPanel.value;
-    if (!showClubSettingsPanel.value) {
-      showClubSettingsEditor.value = false;
-    }
-  }
-
   async function saveActiveClubSettings() {
     if (!session.value || !clubForActiveChat.value || !userCanManageActiveClub.value) return;
     const name = clubSettingsName.value.trim();
@@ -998,7 +1001,10 @@ export function useShelfTalk() {
         },
         session.value,
       );
-      if (route.name !== "chat" || route.params.chatId !== channel) {
+      const onThisClub =
+        (route.name === "chat" || route.name === "chat-settings") &&
+        String(route.params.chatId) === channel;
+      if (!onThisClub) {
         await router.push({ name: "chat", params: { chatId: channel } });
       }
     } catch (e) {
@@ -1011,7 +1017,7 @@ export function useShelfTalk() {
   }
 
   async function leaveActiveClub() {
-    const channel = activeClubChannel.value;
+    const channel = clubChannelFromRoute.value;
     if (!session.value || !channel) return;
     const club = sortedClubs.value.find((c) => c.value?.channel === channel);
     if (club?.value?.ownerActor === session.value.actor) {
@@ -1311,6 +1317,7 @@ export function useShelfTalk() {
     session,
     activeChatChannel,
     activeClubChannel,
+    clubChannelFromRoute,
     dmPeerActor,
     dmPeerInvalid,
     readerProfilePeerActor,
@@ -1352,12 +1359,10 @@ export function useShelfTalk() {
     clubSettingsNextMeetingLocation,
     clubSettingsAllowedGenres,
     clubSettingsNextBook,
-    showClubSettingsPanel,
     showClubSettingsEditor,
     clubSettingsError,
     isSavingClubSettings,
     isDeletingClub,
-    toggleClubSettingsPanel,
     toggleClubSettingsEditor,
     saveActiveClubSettings,
     deleteActiveClub,

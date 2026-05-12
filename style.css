@@ -25,6 +25,11 @@ body {
   color: var(--ink);
 }
 
+/* Lets the in-app shell use the viewport height so nested flex/grid can scroll internally. */
+html {
+  height: 100%;
+}
+
 .skip-link {
   position: absolute;
   left: -999px;
@@ -60,15 +65,27 @@ body {
 
 .app-root {
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .layout {
   max-width: 1440px;
   margin: 0 auto;
   padding: 20px 18px 48px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  /* Critical: column flex + height:auto grows to fit children, so flex:1 never gets a cap. */
+  height: 100vh;
+  max-height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .top-bar {
+  flex-shrink: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -221,6 +238,18 @@ a.club-row {
   border: 1px dashed var(--line);
   color: var(--muted);
   line-height: 1.6;
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Logged-out About: main is the only body under the header. */
+.layout > main.thread.thread-standalone {
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .workspace {
@@ -234,9 +263,12 @@ a.club-row {
   margin-top: 22px;
   display: grid;
   grid-template-columns: minmax(156px, 200px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 20px;
   align-items: stretch;
-  min-height: calc(100dvh - 132px);
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 @media (max-width: 900px) {
@@ -246,7 +278,10 @@ a.club-row {
 
   .workspace-shell {
     grid-template-columns: 1fr;
-    min-height: auto;
+    grid-template-rows: auto minmax(0, 1fr);
+    flex: 1 1 0%;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .sidebar-rail {
@@ -338,47 +373,116 @@ a.club-row {
   min-height: calc(100dvh - 128px);
 }
 
+.workspace-shell > .thread.thread-main {
+  min-height: 0;
+}
+
+.workspace-shell > .thread.thread-main.thread-main--fill {
+  overflow: hidden;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+}
+
+.workspace-shell > .thread.thread-main:not(.thread-main--fill) {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.thread-main.thread-main--fill {
+  min-height: 0;
+}
+
 .thread-page {
-  flex: 1;
+  flex: 1 1 0%;
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
 
-.thread-page--chat {
-  flex: 1;
-  min-height: 0;
-}
-
-.thread-head--chat {
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px 16px;
+/* Book club chat: title + nav actions on one row (similar feel to DM thread). */
+.thread-head--club {
+  gap: 8px;
   padding-bottom: 10px;
 }
 
-.thread-head--chat .thread-head-actions {
-  order: 2;
-  margin-left: auto;
+.thread-head-club-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 12px;
 }
 
-.thread-head--chat > div:last-of-type {
-  flex: 1 1 220px;
+.thread-head-club-title {
+  margin: 4px 0 0;
+  font-size: 1.25rem;
+  line-height: 1.25;
+  flex: 1 1 200px;
   min-width: 0;
+  color: var(--ink);
 }
 
-.thread-head--chat h2 {
-  margin-top: 0;
+.thread-head-club-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.thread-head-club-meta {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.45;
 }
 
 .thread-chat-fill {
-  flex: 1;
+  flex: 1 1 0%;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  margin-top: 4px;
+  margin-top: 2px;
+  padding-bottom: max(6px, env(safe-area-inset-bottom, 0px));
+}
+
+.thread-chat-fill .composer .field {
+  gap: 4px;
+}
+
+.thread-chat-fill .composer .field-label {
+  font-size: 0.78rem;
+}
+
+.thread-chat-fill .composer textarea {
+  min-height: 4.75rem;
+  padding: 8px 10px;
+  line-height: 1.35;
+}
+
+.thread-chat-fill .composer .checkbox {
+  font-size: 0.88rem;
+  gap: 8px;
+}
+
+.thread-chat-fill .composer .inline-fields {
+  gap: 7px;
+}
+
+.thread-page > *:not(.thread-chat-fill) {
+  flex-shrink: 0;
+}
+
+.club-settings-page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.club-settings-page .panel-page-head h2 {
+  margin-top: 0;
 }
 
 .thread-welcome {
@@ -445,14 +549,13 @@ a.club-row {
     grid-template-columns: 1fr;
   }
 
-  .thread-head--chat .thread-head-actions {
-    margin-left: 0;
-    width: 100%;
-    order: 0;
+  .thread-head-club-row {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
-  .thread-head--chat > div:last-of-type {
-    flex-basis: 100%;
+  .thread-head-club-actions {
+    width: 100%;
   }
 }
 
@@ -1044,6 +1147,10 @@ textarea {
   gap: 12px;
 }
 
+.thread.thread-main.thread-main--fill {
+  min-height: 0;
+}
+
 .thread-empty {
   flex: 1;
   display: grid;
@@ -1059,6 +1166,7 @@ textarea {
   gap: 10px;
   border-bottom: 1px solid var(--line);
   padding-bottom: 12px;
+  flex-shrink: 0;
 }
 
 .thread-head-actions {
@@ -1162,9 +1270,10 @@ textarea {
 }
 
 .messages {
-  flex: 1;
+  flex: 1 1 0%;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding-right: 2px;
 }
 
@@ -1174,14 +1283,15 @@ textarea {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 9px;
 }
 
 .message {
   border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 12px;
+  border-radius: 11px;
+  padding: 8px 10px;
   background: #fff;
+  font-size: 0.92rem;
 }
 
 .message.mine {
@@ -1192,9 +1302,9 @@ textarea {
 .message-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 12px;
+  gap: 6px 10px;
   justify-content: space-between;
-  font-size: 0.9rem;
+  font-size: 0.82rem;
   color: var(--muted);
 }
 
@@ -1205,12 +1315,12 @@ textarea {
 .message-meta-main {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 12px;
+  gap: 4px 8px;
   align-items: baseline;
 }
 
 .message-author-label {
-  font-size: 0.8rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted);
@@ -1353,73 +1463,73 @@ a.dm-peer-link {
 }
 
 .book-tag {
-  margin-top: 6px;
-  font-size: 0.9rem;
+  margin-top: 4px;
+  font-size: 0.82rem;
   color: var(--accent);
 }
 
 .bubble {
-  margin-top: 8px;
-  padding: 10px 12px;
-  border-radius: 12px;
+  margin-top: 6px;
+  padding: 7px 10px;
+  border-radius: 9px;
   background: #fdf8f0;
   border: 1px solid #efe3d4;
 }
 
 .bubble.blurred .message-text {
-  filter: blur(6px);
+  filter: blur(5px);
   user-select: none;
 }
 
 .spoiler-label {
-  margin: 0 0 6px;
-  font-size: 0.85rem;
+  margin: 0 0 4px;
+  font-size: 0.78rem;
   font-weight: 700;
   color: var(--danger);
   letter-spacing: 0.02em;
 }
 
 .spoiler-autoreveal-note {
-  margin: 0 0 6px;
-  font-size: 0.8rem;
+  margin: 0 0 4px;
+  font-size: 0.76rem;
   color: var(--accent-2);
 }
 
 .message-text {
   margin: 0;
   white-space: pre-wrap;
-  line-height: 1.5;
+  line-height: 1.4;
 }
 
 .message-actions {
-  margin-top: 8px;
+  margin-top: 6px;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 .composer {
   flex-shrink: 0;
   border-top: 1px solid var(--line);
-  padding-top: 14px;
+  padding-top: 10px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .composer-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
 }
 
 .loading-block {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   color: var(--muted);
-  padding: 12px 0;
+  padding: 8px 0;
 }
 
 .spinner {
@@ -1440,7 +1550,8 @@ a.dm-peer-link {
 .empty {
   color: var(--muted);
   font-style: italic;
-  padding: 8px 0;
+  padding: 6px 0;
+  font-size: 0.9rem;
 }
 
 .banner {

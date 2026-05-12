@@ -51,7 +51,7 @@
             <router-link
               class="nav-pill"
               :to="{ name: 'clubs' }"
-              :class="{ 'nav-pill-active': $route.name === 'clubs' || $route.name === 'chat' }"
+              :class="{ 'nav-pill-active': $route.name === 'clubs' || $route.name === 'chat' || $route.name === 'chat-settings' }"
               >Book clubs</router-link
             >
             <router-link
@@ -116,7 +116,7 @@
             <nav class="sidebar-nav" aria-label="ShelfTalk sections">
               <router-link
                 class="sidebar-nav-item"
-                :class="{ 'sidebar-nav-item-active': $route.name === 'clubs' || $route.name === 'chat' }"
+                :class="{ 'sidebar-nav-item-active': $route.name === 'clubs' || $route.name === 'chat' || $route.name === 'chat-settings' }"
                 :to="{ name: 'clubs' }"
               >
                 Book clubs
@@ -153,7 +153,12 @@
             </p>
           </aside>
 
-          <main id="main" class="thread thread-main" tabindex="-1">
+          <main
+            id="main"
+            class="thread thread-main"
+            :class="{ 'thread-main--fill': $route.name === 'chat' || $route.name === 'dm' }"
+            tabindex="-1"
+          >
             <router-view></router-view>
           </main>
         </div>
@@ -722,145 +727,43 @@
     </template>
 
     <template id="tpl-chat">
-      <div class="thread-page thread-page--chat">
-      <div class="thread-head thread-head--chat">
-        <div class="thread-head-actions">
-          <button type="button" class="btn btn-ghost back-link" @click="goBackOr({ name: 'clubs' })">Back</button>
-          <router-link class="btn btn-ghost btn-tiny" :to="{ name: 'clubs' }">Book clubs</router-link>
-        </div>
-        <div>
-          <h2>{{ threadHeadTitle }}</h2>
-          <p class="hint">
-            Messages live in this
+      <div class="thread-page">
+      <div class="thread-head thread-head--club">
+        <div class="thread-head-club-row">
+          <h2 class="thread-head-club-title">{{ threadHeadTitle }}</h2>
+          <div class="thread-head-club-actions">
+            <button type="button" class="btn btn-ghost back-link" @click="goBackOr({ name: 'clubs' })">Back</button>
+            <router-link class="btn btn-ghost btn-tiny" :to="{ name: 'clubs' }">Book clubs</router-link>
             <router-link
-              :to="channelInfoRoute($route.params.chatId, 'Private club channel', 'Contains this club chat thread')"
-              >private channel</router-link
-            >.
-          </p>
-          <p v-if="activeClubOwnerActor" class="hint">
-            Owner:
-            <graffiti-actor-to-handle :actor="activeClubOwnerActor" />
-          </p>
-        </div>
-      </div>
-
-      <section v-if="clubForActiveChat" class="club-settings-panel" aria-labelledby="club-settings-heading">
-        <div class="club-settings-header">
-          <h3 id="club-settings-heading" class="panel-subhead">Club settings</h3>
-          <button type="button" class="btn btn-ghost btn-tiny" @click="toggleClubSettingsPanel">
-            {{ showClubSettingsPanel ? "Hide settings" : "Show settings" }}
-          </button>
-        </div>
-        <template v-if="showClubSettingsPanel">
-        <dl class="club-settings-display">
-          <div>
-            <dt>Next meeting</dt>
-            <dd>{{ activeClubSettings?.nextMeetingAt || "Not set" }}</dd>
-          </div>
-          <div>
-            <dt>Location / link</dt>
-            <dd>{{ activeClubSettings?.nextMeetingLocation || "Not set" }}</dd>
-          </div>
-          <div>
-            <dt>Allowed genres</dt>
-            <dd>{{ activeClubSettings?.allowedGenres || "Not set" }}</dd>
-          </div>
-          <div>
-            <dt>Next book</dt>
-            <dd>{{ activeClubSettings?.nextBook || "Not set" }}</dd>
-          </div>
-        </dl>
-        <p v-if="!userCanManageActiveClub" class="hint">
-          Only the club owner can edit settings or delete this chat.
-        </p>
-        <button
-          v-else
-          type="button"
-          class="btn btn-ghost btn-tiny"
-          @click="toggleClubSettingsEditor"
-        >
-          {{ showClubSettingsEditor ? "Close update form" : "Update information" }}
-        </button>
-        <form
-          v-if="userCanManageActiveClub && showClubSettingsEditor"
-          class="club-settings-form"
-          @submit.prevent="saveActiveClubSettings"
-        >
-          <label class="field">
-            <span class="field-label">Club name</span>
-            <input
-              v-model="clubSettingsName"
-              type="text"
-              name="club-settings-name"
-              maxlength="80"
-              autocomplete="off"
-              placeholder="Club name"
-            />
-          </label>
-          <label class="field">
-            <span class="field-label">Date of next book club</span>
-            <input
-              v-model="clubSettingsNextMeetingAt"
-              type="text"
-              name="club-settings-next-meeting"
-              maxlength="120"
-              autocomplete="off"
-              placeholder="e.g. 2026-06-01 7:30 PM ET"
-            />
-          </label>
-          <label class="field">
-            <span class="field-label">Location / virtual link</span>
-            <input
-              v-model="clubSettingsNextMeetingLocation"
-              type="text"
-              name="club-settings-location"
-              maxlength="300"
-              autocomplete="off"
-              placeholder="e.g. Zoom link or cafe address"
-            />
-          </label>
-          <label class="field">
-            <span class="field-label">Allowed genres</span>
-            <input
-              v-model="clubSettingsAllowedGenres"
-              type="text"
-              name="club-settings-genres"
-              maxlength="240"
-              autocomplete="off"
-              placeholder="e.g. Sci-fi, Mystery, Memoir"
-            />
-          </label>
-          <label class="field">
-            <span class="field-label">Next book</span>
-            <input
-              v-model="clubSettingsNextBook"
-              type="text"
-              name="club-settings-next-book"
-              maxlength="200"
-              autocomplete="off"
-              placeholder="e.g. The Left Hand of Darkness"
-            />
-          </label>
-          <div class="club-settings-actions">
-            <button
-              type="submit"
-              class="btn btn-primary btn-tiny"
-              :disabled="!clubSettingsName.trim() || isSavingClubSettings || isDeletingClub"
+              v-if="clubForActiveChat && !activeClubRequiresJoin"
+              class="btn btn-ghost btn-tiny"
+              :to="{ name: 'chat-settings', params: { chatId: $route.params.chatId } }"
             >
-              {{ isSavingClubSettings ? "Saving…" : "Save settings" }}
-            </button>
+              Club settings
+            </router-link>
             <button
+              v-if="clubForActiveChat && !activeClubRequiresJoin && !userCanManageActiveClub"
               type="button"
               class="btn btn-ghost btn-tiny danger"
-              :disabled="isSavingClubSettings || isDeletingClub"
-              @click="deleteActiveClub"
+              :disabled="isUpdatingMembership.has($route.params.chatId)"
+              @click="leaveActiveClub"
             >
-              {{ isDeletingClub ? "Deleting…" : "Delete club" }}
+              {{ isUpdatingMembership.has($route.params.chatId) ? "Leaving…" : "Leave club" }}
             </button>
           </div>
-        </form>
-        </template>
-      </section>
+        </div>
+        <p v-if="clubForActiveChat && !activeClubRequiresJoin" class="hint thread-head-club-meta">
+          <template v-if="activeClubOwnerActor">
+            Owner:
+            <graffiti-actor-to-handle :actor="activeClubOwnerActor" />
+            <span aria-hidden="true"> · </span>
+          </template>
+          <router-link
+            :to="channelInfoRoute($route.params.chatId, 'Private club channel', 'Contains this club chat thread')"
+            >Private channel</router-link
+          >
+        </p>
+      </div>
 
       <div v-if="activeClubRequiresJoin" class="banner" role="alert">
         <span>You must join this club before viewing its messages.</span>
@@ -874,34 +777,16 @@
         </button>
       </div>
 
-      <div v-if="!activeClubRequiresJoin" class="club-membership-actions">
-        <button
-          v-if="!userCanManageActiveClub"
-          type="button"
-          class="btn btn-ghost btn-tiny danger"
-          :disabled="isUpdatingMembership.has($route.params.chatId)"
-          @click="leaveActiveClub"
-        >
-          {{ isUpdatingMembership.has($route.params.chatId) ? "Leaving…" : "Leave club" }}
-        </button>
-      </div>
-
       <div
-        v-if="sendError || deleteError || clubSettingsError"
+        v-if="sendError || deleteError"
         class="banner banner-error"
         role="alert"
       >
-        <span>{{ sendError || deleteError || clubSettingsError }}</span>
+        <span>{{ sendError || deleteError }}</span>
         <button
           type="button"
           class="btn btn-ghost btn-tiny"
-          @click="
-            sendError
-              ? dismissSendError()
-              : deleteError
-                ? dismissDeleteError()
-                : dismissClubSettingsError()
-          "
+          @click="sendError ? dismissSendError() : dismissDeleteError()"
         >
           Dismiss
         </button>
@@ -929,22 +814,12 @@
             v-model="myMessage"
             rows="3"
             name="message"
-            placeholder="Share a reaction, a theory, or a favorite line…"
+            placeholder="Write to the club…"
           ></textarea>
-        </label>
-        <label class="field">
-          <span class="field-label">Book context (optional)</span>
-          <input
-            v-model="contextBook"
-            type="text"
-            name="context-book"
-            placeholder="Title, ISBN, or shorthand (e.g. Project Hail Mary)"
-            maxlength="120"
-          />
         </label>
         <label class="checkbox">
           <input v-model="markAsSpoiler" type="checkbox" />
-          Mark as spoiler (blurred for readers until they choose to reveal)
+          Mark as spoiler (blurred until they reveal)
         </label>
         <label v-if="markAsSpoiler" class="field">
           <span class="field-label">Spoiler label</span>
@@ -980,6 +855,16 @@
             />
           </label>
         </div>
+        <label class="field">
+          <span class="field-label">Book context (optional)</span>
+          <input
+            v-model="contextBook"
+            type="text"
+            name="context-book"
+            placeholder="Title, ISBN, or shorthand (e.g. Project Hail Mary)"
+            maxlength="120"
+          />
+        </label>
         <div class="composer-actions">
           <button
             type="submit"
@@ -988,10 +873,185 @@
           >
             {{ isSending ? "Sending…" : "Send" }}
           </button>
-          <span class="hint">You can remove your own messages if you sent something by mistake.</span>
         </div>
       </form>
       </div>
+      </div>
+    </template>
+
+    <template id="tpl-chat-settings">
+      <div class="panel-page club-settings-page">
+        <header class="panel-page-head">
+          <div class="club-settings-page-actions">
+            <button
+              type="button"
+              class="btn btn-ghost back-link"
+              @click="goBackOr({ name: 'chat', params: { chatId: $route.params.chatId } })"
+            >
+              Back
+            </button>
+            <router-link class="btn btn-ghost btn-tiny" :to="{ name: 'chat', params: { chatId: $route.params.chatId } }">
+              Return to chat
+            </router-link>
+            <router-link class="btn btn-ghost btn-tiny" :to="{ name: 'clubs' }">Book clubs</router-link>
+          </div>
+          <h2>Club settings</h2>
+          <p v-if="threadHeadTitle" class="hint">Room: {{ threadHeadTitle }}</p>
+        </header>
+
+        <div v-if="clubsLoading && clubChannelFromRoute" class="loading-block">
+          <span class="spinner" aria-hidden="true"></span>
+          <span>Loading club…</span>
+        </div>
+
+        <template v-else>
+          <div v-if="activeClubRequiresJoin" class="banner" role="alert">
+            <span>You must join this club before viewing or changing its settings.</span>
+            <button
+              type="button"
+              class="btn btn-ghost btn-tiny"
+              :disabled="isUpdatingMembership.has($route.params.chatId)"
+              @click="joinClub($route.params.chatId)"
+            >
+              {{ isUpdatingMembership.has($route.params.chatId) ? "Joining…" : "Join club" }}
+            </button>
+          </div>
+
+          <p v-else-if="!clubForActiveChat" class="banner banner-error" role="alert">
+            This club is not in your directory yet, or the link is invalid.
+            <router-link class="btn btn-ghost btn-tiny" :to="{ name: 'clubs' }">Back to clubs</router-link>
+          </p>
+
+          <template v-else>
+            <section class="club-settings-panel" aria-labelledby="club-settings-page-heading">
+              <h3 id="club-settings-page-heading" class="panel-subhead">Schedule &amp; books</h3>
+              <dl class="club-settings-display">
+                <div>
+                  <dt>Next meeting</dt>
+                  <dd>{{ activeClubSettings?.nextMeetingAt || "Not set" }}</dd>
+                </div>
+                <div>
+                  <dt>Location / link</dt>
+                  <dd>{{ activeClubSettings?.nextMeetingLocation || "Not set" }}</dd>
+                </div>
+                <div>
+                  <dt>Allowed genres</dt>
+                  <dd>{{ activeClubSettings?.allowedGenres || "Not set" }}</dd>
+                </div>
+                <div>
+                  <dt>Next book</dt>
+                  <dd>{{ activeClubSettings?.nextBook || "Not set" }}</dd>
+                </div>
+              </dl>
+              <p v-if="!userCanManageActiveClub" class="hint">
+                Only the club owner can edit settings or delete this chat.
+              </p>
+              <button
+                v-else
+                type="button"
+                class="btn btn-ghost btn-tiny"
+                @click="toggleClubSettingsEditor"
+              >
+                {{ showClubSettingsEditor ? "Close update form" : "Update information" }}
+              </button>
+              <form
+                v-if="userCanManageActiveClub && showClubSettingsEditor"
+                class="club-settings-form"
+                @submit.prevent="saveActiveClubSettings"
+              >
+                <label class="field">
+                  <span class="field-label">Club name</span>
+                  <input
+                    v-model="clubSettingsName"
+                    type="text"
+                    name="club-settings-page-name"
+                    maxlength="80"
+                    autocomplete="off"
+                    placeholder="Club name"
+                  />
+                </label>
+                <label class="field">
+                  <span class="field-label">Date of next book club</span>
+                  <input
+                    v-model="clubSettingsNextMeetingAt"
+                    type="text"
+                    name="club-settings-page-next-meeting"
+                    maxlength="120"
+                    autocomplete="off"
+                    placeholder="e.g. 2026-06-01 7:30 PM ET"
+                  />
+                </label>
+                <label class="field">
+                  <span class="field-label">Location / virtual link</span>
+                  <input
+                    v-model="clubSettingsNextMeetingLocation"
+                    type="text"
+                    name="club-settings-page-location"
+                    maxlength="300"
+                    autocomplete="off"
+                    placeholder="e.g. Zoom link or cafe address"
+                  />
+                </label>
+                <label class="field">
+                  <span class="field-label">Allowed genres</span>
+                  <input
+                    v-model="clubSettingsAllowedGenres"
+                    type="text"
+                    name="club-settings-page-genres"
+                    maxlength="240"
+                    autocomplete="off"
+                    placeholder="e.g. Sci-fi, Mystery, Memoir"
+                  />
+                </label>
+                <label class="field">
+                  <span class="field-label">Next book</span>
+                  <input
+                    v-model="clubSettingsNextBook"
+                    type="text"
+                    name="club-settings-page-next-book"
+                    maxlength="200"
+                    autocomplete="off"
+                    placeholder="e.g. The Left Hand of Darkness"
+                  />
+                </label>
+                <div class="club-settings-actions">
+                  <button
+                    type="submit"
+                    class="btn btn-primary btn-tiny"
+                    :disabled="!clubSettingsName.trim() || isSavingClubSettings || isDeletingClub"
+                  >
+                    {{ isSavingClubSettings ? "Saving…" : "Save settings" }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-tiny danger"
+                    :disabled="isSavingClubSettings || isDeletingClub"
+                    @click="deleteActiveClub"
+                  >
+                    {{ isDeletingClub ? "Deleting…" : "Delete club" }}
+                  </button>
+                </div>
+              </form>
+            </section>
+
+            <div class="club-membership-actions">
+              <button
+                v-if="!userCanManageActiveClub"
+                type="button"
+                class="btn btn-ghost btn-tiny danger"
+                :disabled="isUpdatingMembership.has($route.params.chatId)"
+                @click="leaveActiveClub"
+              >
+                {{ isUpdatingMembership.has($route.params.chatId) ? "Leaving…" : "Leave club" }}
+              </button>
+            </div>
+          </template>
+        </template>
+
+        <div v-if="clubSettingsError" class="banner banner-error" role="alert">
+          <span>{{ clubSettingsError }}</span>
+          <button type="button" class="btn btn-ghost btn-tiny" @click="dismissClubSettingsError">Dismiss</button>
+        </div>
       </div>
     </template>
 
@@ -1184,6 +1244,7 @@
     </template>
 
     <template id="tpl-dm">
+      <div class="thread-page">
       <div class="thread-head">
         <div class="thread-head-actions">
           <button type="button" class="btn btn-ghost back-link" @click="goBackOr({ name: 'dms' })">Back</button>
@@ -1229,8 +1290,8 @@
         </button>
       </div>
 
+      <div v-if="!dmPeerInvalid && !dmSelfConversation" class="thread-chat-fill">
       <section
-        v-if="!dmPeerInvalid && !dmSelfConversation"
         class="messages"
         aria-label="Direct conversation"
         ref="messageViewportRef"
@@ -1248,7 +1309,6 @@
       </section>
 
       <form
-        v-if="!dmPeerInvalid && !dmSelfConversation"
         class="composer"
         @submit.prevent="sendMessage"
       >
@@ -1305,6 +1365,8 @@
           </button>
         </div>
       </form>
+      </div>
+      </div>
     </template>
 
     <template id="tpl-channel">
