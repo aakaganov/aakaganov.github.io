@@ -392,8 +392,12 @@ export function useShelfTalk() {
     return sortedClubs.value.filter((club) => club.value.name.toLowerCase().includes(query));
   });
 
+  /** False while club directory is still loading so we do not hide the thread by mistake. */
   const activeClubRequiresJoin = computed(
-    () => activeClubChannel.value != null && !isMemberOfClub(activeClubChannel.value),
+    () =>
+      activeClubChannel.value != null &&
+      !clubsLoading.value &&
+      !isMemberOfClub(activeClubChannel.value),
   );
 
   const clubForActiveChat = computed(() => {
@@ -1138,7 +1142,12 @@ export function useShelfTalk() {
     clubSettingsError.value = "";
   }
   function goBackOr(fallbackRoute) {
-    if (window.history.length > 1) {
+    // `window.history.length` counts the whole tab (sites before this SPA), so `router.back()`
+    // can leave GitHub Pages or drop the hash; the chat view vanishes with no in-app way back.
+    // Vue Router records stack depth on `history.state.position`; only pop when that says we can.
+    const pos =
+      typeof window.history.state?.position === "number" ? window.history.state.position : null;
+    if (pos != null && pos > 1) {
       router.back();
       return;
     }
