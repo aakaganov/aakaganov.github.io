@@ -51,7 +51,13 @@
             <router-link
               class="nav-pill"
               :to="{ name: 'clubs' }"
-              :class="{ 'nav-pill-active': $route.name === 'clubs' || $route.name === 'chat' || $route.name === 'chat-settings' }"
+              :class="{
+                'nav-pill-active':
+                  $route.name === 'clubs' ||
+                  $route.name === 'chat' ||
+                  $route.name === 'chat-poll' ||
+                  $route.name === 'chat-settings',
+              }"
               >Book clubs</router-link
             >
             <router-link
@@ -116,7 +122,13 @@
             <nav class="sidebar-nav" aria-label="ShelfTalk sections">
               <router-link
                 class="sidebar-nav-item"
-                :class="{ 'sidebar-nav-item-active': $route.name === 'clubs' || $route.name === 'chat' || $route.name === 'chat-settings' }"
+                :class="{
+                  'sidebar-nav-item-active':
+                    $route.name === 'clubs' ||
+                    $route.name === 'chat' ||
+                    $route.name === 'chat-poll' ||
+                    $route.name === 'chat-settings',
+                }"
                 :to="{ name: 'clubs' }"
               >
                 Book clubs
@@ -156,7 +168,7 @@
           <main
             id="main"
             class="thread thread-main"
-            :class="{ 'thread-main--fill': $route.name === 'chat' || $route.name === 'dm' }"
+            :class="{ 'thread-main--fill': $route.name === 'chat' || $route.name === 'chat-poll' || $route.name === 'dm' }"
             tabindex="-1"
           >
             <router-view></router-view>
@@ -199,7 +211,11 @@
           <li v-for="club of myFilteredMemberClubs" :key="club.url">
             <div
               class="club-row"
-              :class="{ active: $route.name === 'chat' && $route.params.chatId === club.value.channel }"
+              :class="{
+                active:
+                  ($route.name === 'chat' || $route.name === 'chat-poll') &&
+                  $route.params.chatId === club.value.channel,
+              }"
             >
               <router-link class="club-row-link" :to="{ name: 'chat', params: { chatId: club.value.channel } }">
                 <span class="club-name">{{ club.value.name }}</span>
@@ -793,6 +809,40 @@
       </div>
 
       <div v-if="!activeClubRequiresJoin" class="thread-chat-fill">
+        <div
+          v-if="activeClubChannel && !activeClubRequiresJoin && (latestOpenBookPoll || userCanManageActiveClub)"
+          class="club-poll-chat-strip"
+          role="region"
+          aria-label="Book poll"
+        >
+          <template v-if="latestOpenBookPoll">
+            <p class="club-poll-chat-strip-text">
+              <strong>Next-book poll</strong>
+              <template v-if="pollVotingOpen"> — voting open</template>
+              <template v-else> — voting closed</template>
+              <template v-if="activePollEndsAtMs != null && pollVotingOpen">
+                · closes {{ new Date(activePollEndsAtMs).toLocaleString() }}
+              </template>
+            </p>
+            <router-link
+              class="btn btn-primary btn-tiny"
+              :to="{ name: 'chat-poll', params: { chatId: $route.params.chatId } }"
+            >
+              Open poll
+            </router-link>
+          </template>
+          <template v-else>
+            <p class="club-poll-chat-strip-text">
+              <strong>Next read</strong> — start a poll when the group is ready to choose the next book.
+            </p>
+            <router-link
+              class="btn btn-primary btn-tiny"
+              :to="{ name: 'chat-poll', params: { chatId: $route.params.chatId } }"
+            >
+              Start poll
+            </router-link>
+          </template>
+        </div>
       <section class="messages" aria-label="Conversation" ref="messageViewportRef">
         <div v-if="isMessageThreadLoading" class="loading-block">
           <span class="spinner" aria-hidden="true"></span>
@@ -812,7 +862,7 @@
           <span class="field-label">Message</span>
           <textarea
             v-model="myMessage"
-            rows="3"
+            rows="2"
             name="message"
             placeholder="Write to the club…"
           ></textarea>
@@ -855,7 +905,7 @@
             />
           </label>
         </div>
-        <label class="field">
+        <label v-if="markAsSpoiler" class="field">
           <span class="field-label">Book context (optional)</span>
           <input
             v-model="contextBook"
@@ -875,6 +925,253 @@
           </button>
         </div>
       </form>
+      </div>
+      </div>
+    </template>
+
+    <template id="tpl-chat-poll">
+      <div class="panel-page club-poll-page">
+        <header class="panel-page-head club-poll-page-head">
+          <div class="club-poll-page-actions">
+            <button
+              type="button"
+              class="btn btn-ghost back-link"
+              @click="goBackOr({ name: 'chat', params: { chatId: $route.params.chatId } })"
+            >
+              Back
+            </button>
+            <router-link class="btn btn-ghost btn-tiny" :to="{ name: 'chat', params: { chatId: $route.params.chatId } }">
+              Return to chat
+            </router-link>
+            <router-link class="btn btn-ghost btn-tiny" :to="{ name: 'clubs' }">Book clubs</router-link>
+          </div>
+          <h2>Next-book poll</h2>
+          <p v-if="threadHeadTitle" class="hint">Room: {{ threadHeadTitle }}</p>
+        </header>
+
+        <div v-if="activeClubRequiresJoin" class="banner" role="alert">
+          <span>You must join this club before using the poll.</span>
+          <button
+            type="button"
+            class="btn btn-ghost btn-tiny"
+            :disabled="isUpdatingMembership.has($route.params.chatId)"
+            @click="joinClub($route.params.chatId)"
+          >
+            {{ isUpdatingMembership.has($route.params.chatId) ? "Joining…" : "Join club" }}
+          </button>
+        </div>
+
+        <div v-else class="club-poll-page-body">
+          <club-poll-panel />
+        </div>
+      </div>
+    </template>
+
+    <template id="tpl-club-poll">
+      <div class="club-poll-root">
+        <div
+          v-if="activeClubChannel && !activeClubRequiresJoin && (latestOpenBookPoll || userCanManageActiveClub)"
+          class="club-poll-stack"
+        >
+        <section v-if="latestOpenBookPoll" class="club-poll-panel" aria-labelledby="club-poll-heading">
+          <h3 id="club-poll-heading" class="club-poll-head">Vote: next book</h3>
+          <p class="hint club-poll-meta">
+            Voting closes {{ new Date(activePollEndsAtMs).toLocaleString() }}, or earlier if all
+            {{ activeClubPollMemberCount }} member(s) have voted.
+            <template v-if="activePollVoteTurnout.total > 0">
+              · {{ activePollVoteTurnout.voted }} / {{ activePollVoteTurnout.total }} members responded
+            </template>
+            <template v-if="pollVotingOpen"> · voting open</template>
+            <template v-else> · voting closed</template>
+          </p>
+          <ul class="club-poll-tally" role="list">
+            <li v-for="opt in activePollOptions" :key="opt.id" class="club-poll-tally-row">
+              <span class="club-poll-tally-title">{{ opt.title }}</span>
+              <span class="club-poll-tally-count">{{ pollVoteCountFor(opt.id) }} vote(s)</span>
+            </li>
+          </ul>
+          <div
+            v-if="pollVotingOpen && isMemberOfClub(activeClubChannel)"
+            class="club-poll-vote"
+          >
+            <fieldset class="club-poll-fieldset">
+              <legend class="sr-only">Choose one book</legend>
+              <label v-for="opt in activePollOptions" :key="'vote-' + opt.id" class="club-poll-radio-label">
+                <input v-model="pollVoteSelection" type="radio" name="club-poll-vote" :value="opt.id" />
+                <span>{{ opt.title }}</span>
+              </label>
+            </fieldset>
+            <div v-if="activePollPreviewOption" class="club-poll-detail">
+              <p class="club-poll-detail-title">{{ activePollPreviewOption.title }}</p>
+              <p v-if="activePollPreviewOption.totalPages" class="hint">
+                {{ activePollPreviewOption.totalPages }} pages
+              </p>
+              <p v-else class="hint">Page count not on file for this option.</p>
+              <p v-if="activePollPreviewOption.isbn" class="hint code-tiny">ISBN {{ activePollPreviewOption.isbn }}</p>
+              <p v-if="activePollPreviewOption.synopsis" class="club-poll-synopsis">{{ activePollPreviewOption.synopsis }}</p>
+              <p v-else class="hint">No synopsis on file — the owner may add one when creating the poll.</p>
+            </div>
+            <p v-if="pollVoteError" class="banner banner-error club-poll-banner" role="alert">{{ pollVoteError }}</p>
+            <button
+              type="button"
+              class="btn btn-primary btn-tiny"
+              :disabled="isSubmittingPollVote || !pollVoteSelection"
+              @click="submitBookPollVote"
+            >
+              {{ isSubmittingPollVote ? "Saving…" : myActivePollVoteOptionId ? "Update vote" : "Submit vote" }}
+            </button>
+          </div>
+          <p v-if="!pollVotingOpen && activePollWaitingForOwnerFinalize" class="hint club-poll-wait">
+            Voting has ended in a tie. The club owner will pick the winner; it will appear under Next book in club
+            settings.
+          </p>
+          <div v-if="activePollAwaitingOwnerFinalize" class="club-poll-finalize">
+            <p class="hint">
+              When voting ends, a clear leader becomes <strong>Next book</strong> automatically while you are signed in
+              here. If there is a tie, choose the winner below, then finalize. You can also use the button to apply a
+              clear winner if automatic sync was delayed.
+            </p>
+            <div v-if="activePollHasTie" class="club-poll-tie">
+              <p class="field-label tiny">Tie — pick the winner</p>
+              <label
+                v-for="tid in activePollLeaders.optionIds"
+                :key="'tie-' + tid"
+                class="club-poll-radio-label"
+              >
+                <input v-model="tieBreakOptionId" type="radio" name="club-poll-tie" :value="tid" />
+                <span>{{ getActivePollOptionTitle(tid) }}</span>
+              </label>
+            </div>
+            <p v-if="pollFinalizeError" class="banner banner-error club-poll-banner" role="alert">
+              {{ pollFinalizeError }}
+            </p>
+            <button
+              type="button"
+              class="btn btn-primary btn-tiny"
+              :disabled="isFinalizingPoll"
+              @click="finalizeBookPoll"
+            >
+              {{ isFinalizingPoll ? "Saving…" : "Set next book & close poll" }}
+            </button>
+          </div>
+        </section>
+
+        <section v-else-if="userCanManageActiveClub" class="club-poll-start">
+          <button type="button" class="btn btn-ghost btn-tiny" @click="showBookPollComposer = !showBookPollComposer">
+            {{ showBookPollComposer ? "Cancel poll draft" : "Start a book poll" }}
+          </button>
+          <div v-if="showBookPollComposer" class="club-poll-composer">
+            <p class="hint club-poll-composer-lead">
+              Add at least two options with titles. Use Open Library search to fill synopsis and page counts when
+              possible. Voting runs for 24 hours or until every club member has voted, whichever comes first. If one
+              book is ahead when voting closes, it becomes Next book automatically while you are signed in; you break
+              ties manually.
+            </p>
+            <div v-for="(row, idx) in pollDraftRows" :key="'poll-row-' + idx" class="club-poll-draft-row">
+              <div class="club-poll-draft-row-head">
+                <span class="field-label tiny">Option {{ idx + 1 }}</span>
+                <button
+                  v-if="pollDraftRows.length > 2"
+                  type="button"
+                  class="btn btn-ghost btn-tiny danger"
+                  @click="removePollDraftRow(idx)"
+                >
+                  Remove
+                </button>
+              </div>
+              <label class="field field--compact">
+                <span class="field-label tiny">Title</span>
+                <input v-model="row.title" type="text" maxlength="200" :name="'poll-title-' + idx" />
+              </label>
+              <label class="field field--compact">
+                <span class="field-label tiny">ISBN (optional)</span>
+                <input v-model="row.isbn" type="text" maxlength="32" :name="'poll-isbn-' + idx" />
+              </label>
+              <label class="field field--compact">
+                <span class="field-label tiny">Total pages (optional)</span>
+                <input v-model="row.totalPages" type="number" min="0" :name="'poll-pages-' + idx" placeholder="—" />
+              </label>
+              <label class="field field--compact">
+                <span class="field-label tiny">Synopsis (optional)</span>
+                <textarea v-model="row.synopsis" rows="2" maxlength="5000" :name="'poll-syn-' + idx"></textarea>
+              </label>
+              <button type="button" class="btn btn-ghost btn-tiny" @click="enrichPollRowFromIsbn(idx)">
+                Fill from ISBN
+              </button>
+            </div>
+            <button type="button" class="btn btn-ghost btn-tiny" :disabled="pollDraftRows.length >= 5" @click="addPollDraftRow">
+              Add option
+            </button>
+            <div class="club-poll-ol">
+              <label class="field field--compact">
+                <span class="field-label tiny">Apply Open Library hits to row</span>
+                <select v-model.number="pollOlTargetRow" class="club-poll-row-select">
+                  <option v-for="(_, idx) in pollDraftRows" :key="'sel-' + idx" :value="idx">
+                    Row {{ idx + 1 }}
+                  </option>
+                </select>
+              </label>
+              <div class="books-api-search-row">
+                <label class="field field--compact books-api-search-field">
+                  <span class="field-label tiny">Search Open Library</span>
+                  <input
+                    v-model="pollOlQuery"
+                    type="search"
+                    name="poll-ol-query"
+                    autocomplete="off"
+                    maxlength="200"
+                    @keydown.enter.prevent="runPollOpenLibrarySearch"
+                  />
+                </label>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-tiny books-api-search-btn"
+                  :disabled="pollOlSearching"
+                  @click="runPollOpenLibrarySearch"
+                >
+                  {{ pollOlSearching ? "Searching…" : "Search" }}
+                </button>
+              </div>
+              <p v-if="pollOlError" class="banner banner-error books-api-banner" role="alert">{{ pollOlError }}</p>
+              <ul v-if="pollOlHits.length" class="book-search-hits" role="list">
+                <li v-for="hit of pollOlHits" :key="hit.id">
+                  <button type="button" class="book-search-hit" @click="applyPollOpenLibraryHit(hit)">
+                    <span class="book-search-hit-title">{{ hit.title }}</span>
+                    <span class="book-search-hit-meta">
+                      <template v-if="hit.authorsLabel">{{ hit.authorsLabel }}</template>
+                      <template v-if="hit.firstYear"> · {{ hit.firstYear }}</template>
+                      <template v-if="hit.isbn"> · ISBN {{ hit.isbn }}</template>
+                      <template v-if="hit.totalPages"> · {{ hit.totalPages }} pages</template>
+                    </span>
+                  </button>
+                </li>
+              </ul>
+            </div>
+            <p v-if="pollComposerError" class="banner banner-error club-poll-banner" role="alert">
+              {{ pollComposerError }}
+            </p>
+            <button
+              type="button"
+              class="btn btn-primary btn-tiny"
+              :disabled="isPostingBookPoll"
+              @click="submitCreateBookPoll"
+            >
+              {{ isPostingBookPoll ? "Posting…" : "Post poll to club" }}
+            </button>
+          </div>
+        </section>
+      </div>
+      <div
+        v-else-if="activeClubChannel && !activeClubRequiresJoin"
+        class="club-poll-empty-state"
+      >
+        <p class="hint">
+          There is no next-book poll open right now. Only the club owner can start one. You can return to the
+          conversation and watch for an announcement in chat.
+        </p>
+        <router-link class="btn btn-primary btn-tiny" :to="{ name: 'chat', params: { chatId: $route.params.chatId } }">
+          Back to chat
+        </router-link>
       </div>
       </div>
     </template>
@@ -941,6 +1238,9 @@
                 <div>
                   <dt>Next book</dt>
                   <dd>{{ activeClubSettings?.nextBook || "Not set" }}</dd>
+                  <p class="hint hint--tight club-settings-poll-hint">
+                    When the owner finalizes a book poll in chat, the winning title is saved here.
+                  </p>
                 </div>
               </dl>
               <p v-if="!userCanManageActiveClub" class="hint">
@@ -1316,7 +1616,7 @@
           <span class="field-label">Message</span>
           <textarea
             v-model="myMessage"
-            rows="3"
+            rows="2"
             name="dm-message"
             placeholder="Write a private note…"
           ></textarea>

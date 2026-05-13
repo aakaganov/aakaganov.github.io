@@ -18,6 +18,12 @@ const router = createRouter({
     { path: "/about", name: "about", component: loadComponent("about") },
     { path: "/books", name: "books", component: loadComponent("books") },
     {
+      path: "/chat/:chatId/poll",
+      name: "chat-poll",
+      component: loadComponent("chat-poll"),
+      props: true,
+    },
+    {
       path: "/chat/:chatId/settings",
       name: "chat-settings",
       component: loadComponent("chat-settings"),

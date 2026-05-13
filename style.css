@@ -90,8 +90,8 @@ html {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 18px 20px;
+  gap: 10px 12px;
+  padding: 12px 16px;
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -108,8 +108,8 @@ html {
 .nav-pill {
   text-decoration: none;
   color: var(--muted);
-  font-size: 0.95rem;
-  padding: 6px 12px;
+  font-size: 0.9rem;
+  padding: 5px 10px;
   border-radius: 999px;
   border: 1px solid transparent;
   transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
@@ -163,18 +163,18 @@ a.club-row {
 }
 
 .brand-mark {
-  font-size: 2rem;
+  font-size: 1.65rem;
 }
 
 .brand-title {
-  font-size: 1.35rem;
+  font-size: 1.15rem;
   font-weight: 700;
   letter-spacing: 0.02em;
 }
 
 .brand-tagline {
   color: var(--muted);
-  font-size: 0.95rem;
+  font-size: 0.86rem;
 }
 
 .session-actions {
@@ -384,6 +384,13 @@ a.club-row {
   max-height: 100%;
 }
 
+/* Router view root (e.g. .thread-page) should consume the main column height. */
+.thread.thread-main.thread-main--fill > * {
+  flex: 1 1 0%;
+  min-height: 0;
+  min-width: 0;
+}
+
 .workspace-shell > .thread.thread-main:not(.thread-main--fill) {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -398,12 +405,14 @@ a.club-row {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* Keep conversation + composer in the viewport; only .messages scrolls. */
+  overflow: hidden;
 }
 
 /* Book club chat: title + nav actions on one row (similar feel to DM thread). */
 .thread-head--club {
-  gap: 8px;
-  padding-bottom: 10px;
+  gap: 5px;
+  padding-bottom: 6px;
 }
 
 .thread-head-club-row {
@@ -411,13 +420,13 @@ a.club-row {
   flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: 8px 12px;
+  gap: 6px 10px;
 }
 
 .thread-head-club-title {
-  margin: 4px 0 0;
-  font-size: 1.25rem;
-  line-height: 1.25;
+  margin: 2px 0 0;
+  font-size: 1.05rem;
+  line-height: 1.2;
   flex: 1 1 200px;
   min-width: 0;
   color: var(--ink);
@@ -426,15 +435,15 @@ a.club-row {
 .thread-head-club-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
   flex-shrink: 0;
 }
 
 .thread-head-club-meta {
   margin: 0;
-  font-size: 0.85rem;
-  line-height: 1.45;
+  font-size: 0.78rem;
+  line-height: 1.35;
 }
 
 .thread-chat-fill {
@@ -442,8 +451,9 @@ a.club-row {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  margin-top: 2px;
-  padding-bottom: max(6px, env(safe-area-inset-bottom, 0px));
+  overflow: hidden;
+  margin-top: 0;
+  padding-bottom: max(4px, env(safe-area-inset-bottom, 0px));
 }
 
 .thread-chat-fill .composer .field {
@@ -451,22 +461,27 @@ a.club-row {
 }
 
 .thread-chat-fill .composer .field-label {
-  font-size: 0.78rem;
+  font-size: 0.72rem;
+}
+
+.thread-chat-fill .composer {
+  flex-shrink: 0;
+  margin-top: auto;
 }
 
 .thread-chat-fill .composer textarea {
-  min-height: 4.75rem;
-  padding: 8px 10px;
-  line-height: 1.35;
+  min-height: 2.35rem;
+  padding: 6px 8px;
+  line-height: 1.3;
 }
 
 .thread-chat-fill .composer .checkbox {
-  font-size: 0.88rem;
-  gap: 8px;
+  font-size: 0.8rem;
+  gap: 6px;
 }
 
 .thread-chat-fill .composer .inline-fields {
-  gap: 7px;
+  gap: 5px;
 }
 
 .thread-page > *:not(.thread-chat-fill) {
@@ -1134,17 +1149,18 @@ textarea {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 16px;
-  padding: 18px;
+  padding: 12px 14px;
   box-shadow: var(--shadow);
   min-height: 520px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
 }
 
 .thread.thread-main {
-  min-height: calc(100dvh - 128px);
-  gap: 12px;
+  min-height: calc(100dvh - 112px);
+  gap: 8px;
+  padding: 10px 12px;
 }
 
 .thread.thread-main.thread-main--fill {
@@ -1163,21 +1179,22 @@ textarea {
 .thread-head {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
   border-bottom: 1px solid var(--line);
-  padding-bottom: 12px;
+  padding-bottom: 8px;
   flex-shrink: 0;
 }
 
 .thread-head-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
 }
 
 .thread-head h2 {
-  margin: 4px 0 0;
+  margin: 2px 0 0;
+  font-size: 1.05rem;
 }
 
 .club-settings-panel {
@@ -1283,15 +1300,15 @@ textarea {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 5px;
 }
 
 .message {
   border: 1px solid var(--line);
-  border-radius: 11px;
-  padding: 8px 10px;
+  border-radius: 8px;
+  padding: 5px 8px;
   background: #fff;
-  font-size: 0.92rem;
+  font-size: 0.86rem;
 }
 
 .message.mine {
@@ -1302,9 +1319,9 @@ textarea {
 .message-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 10px;
+  gap: 4px 8px;
   justify-content: space-between;
-  font-size: 0.82rem;
+  font-size: 0.76rem;
   color: var(--muted);
 }
 
@@ -1315,12 +1332,12 @@ textarea {
 .message-meta-main {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 8px;
+  gap: 3px 6px;
   align-items: baseline;
 }
 
 .message-author-label {
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted);
@@ -1463,15 +1480,15 @@ a.dm-peer-link {
 }
 
 .book-tag {
-  margin-top: 4px;
-  font-size: 0.82rem;
+  margin-top: 2px;
+  font-size: 0.78rem;
   color: var(--accent);
 }
 
 .bubble {
-  margin-top: 6px;
-  padding: 7px 10px;
-  border-radius: 9px;
+  margin-top: 4px;
+  padding: 5px 8px;
+  border-radius: 7px;
   background: #fdf8f0;
   border: 1px solid #efe3d4;
 }
@@ -1482,39 +1499,39 @@ a.dm-peer-link {
 }
 
 .spoiler-label {
-  margin: 0 0 4px;
-  font-size: 0.78rem;
+  margin: 0 0 2px;
+  font-size: 0.74rem;
   font-weight: 700;
   color: var(--danger);
   letter-spacing: 0.02em;
 }
 
 .spoiler-autoreveal-note {
-  margin: 0 0 4px;
-  font-size: 0.76rem;
+  margin: 0 0 2px;
+  font-size: 0.72rem;
   color: var(--accent-2);
 }
 
 .message-text {
   margin: 0;
   white-space: pre-wrap;
-  line-height: 1.4;
+  line-height: 1.3;
 }
 
 .message-actions {
-  margin-top: 6px;
+  margin-top: 4px;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
 }
 
 .composer {
   flex-shrink: 0;
   border-top: 1px solid var(--line);
-  padding-top: 10px;
+  padding-top: 6px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 5px;
 }
 
 .composer-actions {
@@ -1692,6 +1709,15 @@ code {
   }
 }
 
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 @keyframes buttonGlow {
   0% {
     box-shadow: 0 0 0 rgba(255, 255, 255, 0);
@@ -1702,4 +1728,203 @@ code {
   100% {
     box-shadow: 0 0 0 rgba(255, 255, 255, 0);
   }
+}
+
+.club-settings-poll-hint {
+  margin: 6px 0 0;
+}
+
+.club-poll-chat-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 10px;
+  flex-shrink: 0;
+  padding: 6px 10px;
+  margin-bottom: 5px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 253, 248, 0.92);
+}
+
+.club-poll-chat-strip-text {
+  margin: 0;
+  flex: 1 1 200px;
+  min-width: 0;
+  font-size: 0.84rem;
+  line-height: 1.32;
+}
+
+.club-poll-page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.club-poll-page-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.club-poll-page .club-poll-stack {
+  max-height: none;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.club-poll-root {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.club-poll-empty-state {
+  padding: 8px 0 4px;
+}
+
+.club-poll-stack {
+  flex-shrink: 0;
+  max-height: min(38vh, 360px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-bottom: 8px;
+  padding-right: 2px;
+}
+
+.club-poll-panel,
+.club-poll-start {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(255, 253, 248, 0.92);
+}
+
+.club-poll-head {
+  margin: 0 0 6px;
+  font-size: 1rem;
+}
+
+.club-poll-meta {
+  margin: 0 0 8px;
+}
+
+.club-poll-tally {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.club-poll-tally-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.88rem;
+}
+
+.club-poll-tally-title {
+  font-weight: 600;
+}
+
+.club-poll-fieldset {
+  border: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+.club-poll-radio-label {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-bottom: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.club-poll-detail {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.club-poll-detail-title {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+
+.club-poll-synopsis {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.club-poll-banner {
+  margin: 8px 0 0;
+}
+
+.club-poll-wait {
+  margin: 8px 0 0;
+}
+
+.club-poll-finalize {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+
+.club-poll-tie {
+  margin: 8px 0;
+}
+
+.club-poll-composer {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.club-poll-composer-lead {
+  margin: 0;
+}
+
+.club-poll-draft-row {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.club-poll-draft-row:last-of-type {
+  border-bottom: none;
+}
+
+.club-poll-draft-row-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.club-poll-ol {
+  margin-top: 6px;
+}
+
+.club-poll-row-select {
+  font: inherit;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
 }

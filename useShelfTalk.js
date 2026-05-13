@@ -1,8 +1,8 @@
-import { ref, computed, watch, nextTick } from "vue";
+import { ref, computed, watch, nextTick, watchEffect } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useGraffiti, useGraffitiSession, useGraffitiDiscover } from "@graffiti-garden/wrapper-vue";
 import { directMessageChannelId, peerToKey, keyToPeer } from "./directMessage.js";
-import { searchOpenLibraryBooks } from "./booksApi.js";
+import { searchOpenLibraryBooks, fetchOpenLibraryEditionByIsbn } from "./booksApi.js";
 
 /** Shared directory for book club listings (Part A "where" for discovery). */
 export const BOOK_CLUB_DIRECTORY = "bookclub-discovery";
@@ -30,19 +30,27 @@ const bookClubCreateSchema = {
   },
 };
 
-const noteMessageSchema = {
+
+/** Notes, book polls, votes, and close events share the club / DM channel. */
+const messageChannelObjectSchema = {
   properties: {
     value: {
-      required: ["type", "content", "published"],
+      required: ["type", "published"],
       properties: {
-        type: { const: "Note" },
-        content: { type: "string" },
+        type: { type: "string" },
         published: { type: "number" },
+        content: { type: "string" },
         contextBook: { type: "string" },
         isBlurred: { type: "boolean" },
         spoilerWarning: { type: "string" },
         spoilerPage: { type: "number" },
         spoilerProgress: { type: "number" },
+        pollId: { type: "string" },
+        endsAt: { type: "number" },
+        options: { type: "array" },
+        optionId: { type: "string" },
+        winnerOptionId: { type: "string" },
+        winnerTitle: { type: "string" },
       },
     },
   },
@@ -100,18 +108,21 @@ export function useShelfTalk() {
   const route = useRoute();
   const router = useRouter();
 
-  /** Book-club message channel only while on the chat thread (not the settings page). */
+  /** Club message channel while on live chat or the dedicated poll page (not settings). */
   const activeClubChannel = computed(() => {
-    if (route.name === "chat" && route.params.chatId) {
+    if (
+      (route.name === "chat" || route.name === "chat-poll") &&
+      route.params.chatId
+    ) {
       return String(route.params.chatId);
     }
     return null;
   });
 
-  /** Club id from URL on chat or club-settings routes (membership, metadata, settings UI). */
+  /** Club id from URL on chat, poll, or club-settings routes. */
   const clubChannelFromRoute = computed(() => {
     if (
-      (route.name === "chat" || route.name === "chat-settings") &&
+      (route.name === "chat" || route.name === "chat-poll" || route.name === "chat-settings") &&
       route.params.chatId
     ) {
       return String(route.params.chatId);
@@ -225,6 +236,28 @@ export function useShelfTalk() {
   const clubSettingsNextBook = ref("");
   const showClubSettingsEditor = ref(false);
   const clubSettingsError = ref("");
+  const showBookPollComposer = ref(false);
+  const pollComposerError = ref("");
+  const isPostingBookPoll = ref(false);
+  const pollDraftRows = ref([
+    { title: "", isbn: "", synopsis: "", totalPages: "" },
+    { title: "", isbn: "", synopsis: "", totalPages: "" },
+  ]);
+  const pollOlQuery = ref("");
+  const pollOlHits = ref([]);
+  const pollOlSearching = ref(false);
+  const pollOlError = ref("");
+  /** @type {import('vue').Ref<AbortController | null>} */
+  const pollOlAbort = ref(null);
+  const pollOlTargetRow = ref(0);
+  const pollVoteSelection = ref("");
+  const isSubmittingPollVote = ref(false);
+  const pollVoteError = ref("");
+  const isFinalizingPoll = ref(false);
+  const pollFinalizeError = ref("");
+  const tieBreakOptionId = ref("");
+  const pollAutoCloseLastId = ref("");
+  const pollAutoClosingInFlight = ref(false);
   const isSavingClubSettings = ref(false);
   const isDeletingClub = ref(false);
   const isUpdatingMembership = ref(new Set());
@@ -244,6 +277,10 @@ export function useShelfTalk() {
   const messageViewportRef = ref(null);
 
   const revealedMessageUrls = ref(new Set());
+
+  watch(markAsSpoiler, (on) => {
+    if (!on) contextBook.value = "";
+  });
 
   watch(
     () => [
@@ -396,12 +433,15 @@ export function useShelfTalk() {
 
   function isMemberOfClub(channel) {
     const channelId = String(channel ?? "");
-    if (!channelId) return false;
+    const actor = session.value?.actor;
+    if (!channelId || !actor) return false;
     const club = sortedClubs.value.find((c) => c.value?.channel === channelId);
-    if (club && session.value?.actor && club.value?.ownerActor === session.value.actor) {
+    if (club && club.value?.ownerActor === actor) {
       return true;
     }
-    return myClubMembershipByChannel.value.get(channelId) === true;
+    if (myClubMembershipByChannel.value.get(channelId) === true) return true;
+    /** Join mirror can land before profile discover catches up; still allow voting. */
+    return hasClubChannelJoinMirror(actor, channelId);
   }
 
   const filteredClubs = computed(() => {
@@ -473,18 +513,6 @@ export function useShelfTalk() {
           session.value.actor === activeClubOwnerActor.value,
       ),
   );
-
-  const activeClubSettings = computed(() => {
-    const value = clubForActiveChat.value?.value;
-    if (!value) return null;
-    return {
-      name: value.name ?? "",
-      nextMeetingAt: value.nextMeetingAt ?? "",
-      nextMeetingLocation: value.nextMeetingLocation ?? "",
-      allowedGenres: value.allowedGenres ?? "",
-      nextBook: value.nextBook ?? "",
-    };
-  });
 
   function normalizeClubName(name) {
     return String(name ?? "")
@@ -566,15 +594,168 @@ export function useShelfTalk() {
     },
   );
 
-  const { objects: rawMessages, isFirstPoll: messagesLoading } = useGraffitiDiscover(
+  const { objects: rawChannelObjects, isFirstPoll: messagesLoading } = useGraffitiDiscover(
     () => [selectedMessageChannel.value],
-    noteMessageSchema,
+    messageChannelObjectSchema,
     undefined,
     true,
   );
 
+  /** Club channel while on settings only (chat uses `rawChannelObjects` above). */
+  const settingsClubDiscoverChannel = computed(() => {
+    if (route.name === "chat-settings" && route.params.chatId) {
+      return String(route.params.chatId);
+    }
+    return IDLE_MESSAGE_CHANNEL;
+  });
+
+  const { objects: rawSettingsClubChannelObjects } = useGraffitiDiscover(
+    () => [settingsClubDiscoverChannel.value],
+    messageChannelObjectSchema,
+    undefined,
+    true,
+  );
+
+  /** When directory BookClub updates lag, the winning title still lives on the club channel. */
+  const closedPollWinnerTitle = computed(() => {
+    if (!clubChannelFromRoute.value) return "";
+    const objects =
+      route.name === "chat-settings"
+        ? rawSettingsClubChannelObjects.value
+        : rawChannelObjects.value;
+    const winners = objects
+      .filter(
+        (o) =>
+          o.value?.type === "BookPollClosed" &&
+          typeof o.value?.winnerTitle === "string" &&
+          String(o.value.winnerTitle).trim(),
+      )
+      .toSorted((a, b) => (b.value.published ?? 0) - (a.value.published ?? 0));
+    return String(winners[0]?.value?.winnerTitle ?? "").trim();
+  });
+
+  const mergedClubNextBook = computed(() => {
+    const fromDir = String(clubForActiveChat.value?.value?.nextBook ?? "").trim();
+    return fromDir || closedPollWinnerTitle.value;
+  });
+
+  const activeClubSettings = computed(() => {
+    const value = clubForActiveChat.value?.value;
+    if (!value) return null;
+    return {
+      name: value.name ?? "",
+      nextMeetingAt: value.nextMeetingAt ?? "",
+      nextMeetingLocation: value.nextMeetingLocation ?? "",
+      allowedGenres: value.allowedGenres ?? "",
+      nextBook: mergedClubNextBook.value,
+    };
+  });
+
+  /** ClubMembership objects for a club channel, from any discover source. */
+  function clubMembershipObjectsForChannel(objects, channelId) {
+    const ch = String(channelId ?? "");
+    if (!ch) return [];
+    return objects.filter(
+      (o) =>
+        o.value?.type === "ClubMembership" && String(o.value?.channel ?? "") === ch,
+    );
+  }
+
+  function hasClubChannelJoinMirror(actor, channelId) {
+    const ch = String(channelId ?? "");
+    const a = typeof actor === "string" ? actor : "";
+    if (!ch || !a) return false;
+    const objects =
+      clubChannelFromRoute.value === ch && route.name === "chat-settings"
+        ? rawSettingsClubChannelObjects.value
+        : rawChannelObjects.value;
+    return objects.some(
+      (o) =>
+        o.actor === a &&
+        o.value?.type === "ClubMembership" &&
+        o.value?.activity === "Join" &&
+        String(o.value?.channel ?? "") === ch,
+    );
+  }
+
+  /**
+   * Actors currently in the club: directory owner + latest Join per reader.
+   * Join/Leave is posted to each member's profile and mirrored on the club channel so every
+   * client can see the roster. Late joiners who only have an older profile-only Join get a
+   * mirror posted when they open this chat (see club join mirror watch).
+   */
+  function memberActorSetForChannel(channelId) {
+    const ch = String(channelId ?? "");
+    if (!ch) return new Set();
+    const actors = new Set();
+    const club = sortedClubs.value.find((c) => c.value?.channel === ch);
+    const owner = club?.value?.ownerActor ?? club?.actor;
+    if (typeof owner === "string" && owner.trim()) actors.add(owner.trim());
+    const onClubChannel = clubMembershipObjectsForChannel(rawChannelObjects.value, ch);
+    const onProfile = clubMembershipObjectsForChannel(rawMembershipObjects.value, ch);
+    const events = [...onClubChannel, ...onProfile].toSorted(
+      (a, b) => (a.value.published ?? 0) - (b.value.published ?? 0),
+    );
+    const latestByActor = new Map();
+    for (const e of events) {
+      const a = typeof e.actor === "string" ? e.actor : "";
+      if (!a) continue;
+      latestByActor.set(a, e.value?.activity === "Join");
+    }
+    for (const [a, joined] of latestByActor) {
+      if (joined) actors.add(a);
+    }
+    return actors;
+  }
+
+  const clubJoinMirrorInFlight = ref(null);
+
+  watch(
+    () => [
+      route.name,
+      activeClubChannel.value,
+      session.value?.actor,
+      messagesLoading.value,
+      clubChannelFromRoute.value,
+      myClubMembershipByChannel.value,
+    ],
+    async () => {
+      if (route.name !== "chat" && route.name !== "chat-poll") return;
+      const ch = activeClubChannel.value;
+      const actor = session.value?.actor;
+      if (!ch || !actor || !session.value) return;
+      if (messagesLoading.value) return;
+      if (clubJoinMirrorInFlight.value === ch) return;
+      if (!isMemberOfClub(ch)) return;
+      const profileJoined = myClubMembershipByChannel.value.get(ch) === true;
+      const isOwner = activeClubOwnerActor.value && session.value.actor === activeClubOwnerActor.value;
+      if (!profileJoined && !isOwner) return;
+      if (hasClubChannelJoinMirror(actor, ch)) return;
+      clubJoinMirrorInFlight.value = ch;
+      try {
+        await graffiti.post(
+          {
+            value: {
+              type: "ClubMembership",
+              activity: "Join",
+              channel: ch,
+              published: Date.now(),
+            },
+            channels: [ch],
+          },
+          session.value,
+        );
+      } catch {
+        /* retry on a later navigation / discover tick */
+      } finally {
+        clubJoinMirrorInFlight.value = null;
+      }
+    },
+    { flush: "post" },
+  );
+
   const sortedMessages = computed(() => {
-    const list = rawMessages.value.filter(
+    const list = rawChannelObjects.value.filter(
       (o) => o.value?.type === "Note" && o.value?.content != null,
     );
     return list.toSorted(
@@ -591,6 +772,209 @@ export function useShelfTalk() {
   const isMessageThreadLoading = computed(
     () => messageThreadActive.value && messagesLoading.value,
   );
+
+  const BOOK_POLL_DURATION_MS = 24 * 60 * 60 * 1000;
+
+  function tallyBookPollVotes(pollId) {
+    const votes = rawChannelObjects.value
+      .filter((o) => o.value?.type === "BookPollVote" && o.value?.pollId === pollId)
+      .toSorted((a, b) => (a.value.published ?? 0) - (b.value.published ?? 0));
+    const latestByActor = new Map();
+    for (const v of votes) {
+      const actor = typeof v.actor === "string" ? v.actor.trim() : "";
+      const oid = v.value?.optionId;
+      if (!actor || typeof oid !== "string" || !oid) continue;
+      latestByActor.set(actor, oid);
+    }
+    const counts = new Map();
+    for (const oid of latestByActor.values()) {
+      counts.set(oid, (counts.get(oid) ?? 0) + 1);
+    }
+    return { counts, latestByActor };
+  }
+
+  const closedPollIds = computed(() => {
+    const s = new Set();
+    for (const o of rawChannelObjects.value) {
+      const pid = o.value?.pollId;
+      if (o.value?.type === "BookPollClosed" && typeof pid === "string" && pid) s.add(pid);
+    }
+    return s;
+  });
+
+  const latestOpenBookPoll = computed(() => {
+    if (!activeClubChannel.value) return null;
+    const polls = rawChannelObjects.value
+      .filter(
+        (o) =>
+          o.value?.type === "BookPoll" &&
+          typeof o.value?.pollId === "string" &&
+          Array.isArray(o.value?.options) &&
+          o.value.options.length >= 2,
+      )
+      .toSorted((a, b) => (b.value.published ?? 0) - (a.value.published ?? 0));
+    const closed = closedPollIds.value;
+    for (const p of polls) {
+      if (closed.has(p.value.pollId)) continue;
+      return p;
+    }
+    return null;
+  });
+
+  const pollUiTick = ref(Date.now());
+  watchEffect((onCleanup) => {
+    const poll = latestOpenBookPoll.value;
+    const pid = poll?.value?.pollId;
+    if (!pid || closedPollIds.value.has(pid)) return;
+    const id = window.setInterval(() => {
+      pollUiTick.value = Date.now();
+    }, 15_000);
+    onCleanup(() => window.clearInterval(id));
+  });
+
+  const activePollEndsAtMs = computed(() => {
+    pollUiTick.value;
+    const p = latestOpenBookPoll.value?.value;
+    if (!p) return null;
+    if (Number.isFinite(p.endsAt)) return p.endsAt;
+    return (p.published ?? 0) + BOOK_POLL_DURATION_MS;
+  });
+
+  const activeClubPollMemberActors = computed(() => {
+    const ch = activeClubChannel.value;
+    if (!ch) return new Set();
+    const s = memberActorSetForChannel(ch);
+    const owner = activeClubOwnerActor.value;
+    if (typeof owner === "string" && owner.trim()) s.add(owner.trim());
+    const self = session.value?.actor;
+    if (typeof self === "string" && self.trim() && isMemberOfClub(ch)) {
+      s.add(self.trim());
+    }
+    return s;
+  });
+
+  const activePollAllMembersHaveVoted = computed(() => {
+    const poll = latestOpenBookPoll.value;
+    if (!poll?.value?.pollId) return false;
+    const members = activeClubPollMemberActors.value;
+    if (members.size === 0) return false;
+    const tally = tallyBookPollVotes(poll.value.pollId);
+    // More distinct voters than known members ⇒ roster is missing someone (e.g. late joiner
+    // not mirrored yet); do not treat the poll as unanimous.
+    if (tally.latestByActor.size > members.size) return false;
+    for (const actor of members) {
+      if (!tally.latestByActor.has(actor)) return false;
+    }
+    return true;
+  });
+
+  const activeClubPollMemberCount = computed(() => activeClubPollMemberActors.value.size);
+
+  const activePollVoteTurnout = computed(() => {
+    const poll = latestOpenBookPoll.value;
+    const members = activeClubPollMemberActors.value;
+    if (!poll?.value?.pollId || members.size === 0) return { voted: 0, total: 0 };
+    const tally = tallyBookPollVotes(poll.value.pollId);
+    let voted = 0;
+    for (const a of members) {
+      if (tally.latestByActor.has(a)) voted++;
+    }
+    return { voted, total: members.size };
+  });
+
+  const pollVotingOpen = computed(() => {
+    pollUiTick.value;
+    const ends = activePollEndsAtMs.value;
+    if (ends == null) return false;
+    if (Date.now() >= ends) return false;
+    if (activePollAllMembersHaveVoted.value) return false;
+    return true;
+  });
+
+  const activePollAwaitingOwnerFinalize = computed(
+    () =>
+      Boolean(
+        latestOpenBookPoll.value && !pollVotingOpen.value && userCanManageActiveClub.value,
+      ),
+  );
+
+  const activePollWaitingForOwnerFinalize = computed(
+    () =>
+      Boolean(
+        latestOpenBookPoll.value &&
+          !pollVotingOpen.value &&
+          !userCanManageActiveClub.value &&
+          activePollHasTie.value,
+      ),
+  );
+
+  const activePollOptions = computed(() => {
+    const poll = latestOpenBookPoll.value?.value;
+    if (!poll?.options) return [];
+    return poll.options.filter(
+      (o) => o && typeof o.id === "string" && String(o.title ?? "").trim(),
+    );
+  });
+
+  const activePollTally = computed(() => {
+    const poll = latestOpenBookPoll.value;
+    if (!poll?.value?.pollId) return null;
+    return tallyBookPollVotes(poll.value.pollId);
+  });
+
+  const activePollLeaders = computed(() => {
+    const tally = activePollTally.value;
+    const opts = activePollOptions.value;
+    if (!opts.length) return { max: 0, optionIds: [] };
+    let max = 0;
+    if (tally && tally.counts.size > 0) {
+      for (const n of tally.counts.values()) if (n > max) max = n;
+    }
+    if (max > 0) {
+      const optionIds = [...tally.counts.entries()].filter(([, n]) => n === max).map(([id]) => id);
+      return { max, optionIds };
+    }
+    return { max: 0, optionIds: opts.map((o) => o.id) };
+  });
+
+  const activePollHasTie = computed(() => activePollLeaders.value.optionIds.length > 1);
+
+  const myActivePollVoteOptionId = computed(() => {
+    const poll = latestOpenBookPoll.value;
+    const actor = typeof session.value?.actor === "string" ? session.value.actor.trim() : "";
+    if (!poll?.value?.pollId || !actor) return "";
+    return tallyBookPollVotes(poll.value.pollId).latestByActor.get(actor) ?? "";
+  });
+
+  watch(
+    () => [latestOpenBookPoll.value?.value?.pollId ?? "", myActivePollVoteOptionId.value],
+    ([pollId, serverVote], prev) => {
+      const prevPollId = Array.isArray(prev) ? (prev[0] ?? "") : "";
+      const prevServer = Array.isArray(prev) ? (prev[1] ?? "") : "";
+      if (pollId !== prevPollId) {
+        pollVoteSelection.value = serverVote || "";
+        tieBreakOptionId.value = "";
+        pollFinalizeError.value = "";
+        pollVoteError.value = "";
+        return;
+      }
+      if (serverVote !== prevServer) {
+        if (serverVote) {
+          pollVoteSelection.value = serverVote;
+          pollVoteError.value = "";
+        } else if (prevServer) {
+          pollVoteSelection.value = "";
+        }
+      }
+    },
+    { immediate: true },
+  );
+
+  const activePollPreviewOption = computed(() => {
+    const id = pollVoteSelection.value;
+    if (!id) return null;
+    return activePollOptions.value.find((o) => o.id === id) ?? null;
+  });
 
   function scrollMessagesToLatest() {
     const el = messageViewportRef.value;
@@ -871,7 +1255,7 @@ export function useShelfTalk() {
             channel,
             published: Date.now(),
           },
-          channels: [profileChannel.value],
+          channels: [profileChannel.value, channel],
         },
         session.value,
       );
@@ -888,7 +1272,7 @@ export function useShelfTalk() {
   }
 
   watch(
-    () => clubForActiveChat.value?.url,
+    () => [clubForActiveChat.value?.url, mergedClubNextBook.value],
     () => {
       const settings = activeClubSettings.value;
       clubSettingsName.value = settings?.name ?? "";
@@ -997,12 +1381,14 @@ export function useShelfTalk() {
             channel,
             published: Date.now(),
           },
-          channels: [profileChannel.value],
+          channels: [profileChannel.value, channel],
         },
         session.value,
       );
       const onThisClub =
-        (route.name === "chat" || route.name === "chat-settings") &&
+        (route.name === "chat" ||
+          route.name === "chat-settings" ||
+          route.name === "chat-poll") &&
         String(route.params.chatId) === channel;
       if (!onThisClub) {
         await router.push({ name: "chat", params: { chatId: channel } });
@@ -1039,7 +1425,7 @@ export function useShelfTalk() {
             channel,
             published: Date.now(),
           },
-          channels: [profileChannel.value],
+          channels: [profileChannel.value, channel],
         },
         session.value,
       );
@@ -1085,6 +1471,338 @@ export function useShelfTalk() {
     toggleReveal(msg.url);
   }
 
+  function addPollDraftRow() {
+    if (pollDraftRows.value.length >= 5) return;
+    pollDraftRows.value = [
+      ...pollDraftRows.value,
+      { title: "", isbn: "", synopsis: "", totalPages: "" },
+    ];
+  }
+
+  function removePollDraftRow(idx) {
+    if (pollDraftRows.value.length <= 2) return;
+    pollDraftRows.value = pollDraftRows.value.filter((_, i) => i !== idx);
+    pollOlTargetRow.value = Math.min(pollOlTargetRow.value, pollDraftRows.value.length - 1);
+  }
+
+  async function runPollOpenLibrarySearch() {
+    const q = pollOlQuery.value.trim();
+    pollOlError.value = "";
+    pollOlHits.value = [];
+    if (!q) {
+      pollOlError.value = "Enter a title or author.";
+      return;
+    }
+    pollOlAbort.value?.abort();
+    const ctl = new AbortController();
+    pollOlAbort.value = ctl;
+    pollOlSearching.value = true;
+    try {
+      pollOlHits.value = await searchOpenLibraryBooks(q, ctl.signal);
+      if (!pollOlHits.value.length) pollOlError.value = "No results.";
+    } catch (e) {
+      if (e && typeof e === "object" && "name" in e && e.name === "AbortError") return;
+      pollOlError.value = e instanceof Error ? e.message : "Search failed.";
+    } finally {
+      pollOlSearching.value = false;
+    }
+  }
+
+  async function applyPollOpenLibraryHit(hit) {
+    if (!hit) return;
+    const i = pollOlTargetRow.value;
+    const rows = [...pollDraftRows.value];
+    if (!rows[i]) return;
+    rows[i] = {
+      ...rows[i],
+      title: String(hit.title ?? "").trim(),
+      isbn: String(hit.isbn ?? "").trim(),
+      totalPages:
+        hit.totalPages != null && hit.totalPages > 0 ? String(hit.totalPages) : rows[i].totalPages,
+      synopsis: String(hit.synopsisHint ?? "").trim() || rows[i].synopsis,
+    };
+    pollDraftRows.value = rows;
+    pollOlHits.value = [];
+    pollOlError.value = "";
+    if (hit.isbn) {
+      try {
+        const meta = await fetchOpenLibraryEditionByIsbn(hit.isbn, undefined);
+        const r = { ...pollDraftRows.value[i] };
+        if (meta.title) r.title = meta.title;
+        if (meta.synopsis) r.synopsis = meta.synopsis;
+        if (meta.totalPages != null && meta.totalPages > 0) r.totalPages = String(meta.totalPages);
+        const next = [...pollDraftRows.value];
+        next[i] = r;
+        pollDraftRows.value = next;
+      } catch {
+        /* edition fetch is best-effort */
+      }
+    }
+  }
+
+  async function enrichPollRowFromIsbn(rowIndex) {
+    const row = pollDraftRows.value[rowIndex];
+    if (!row?.isbn?.trim()) {
+      pollOlError.value = "Enter an ISBN on that row first.";
+      return;
+    }
+    pollOlError.value = "";
+    try {
+      const meta = await fetchOpenLibraryEditionByIsbn(row.isbn, undefined);
+      const next = [...pollDraftRows.value];
+      const r = { ...next[rowIndex] };
+      if (meta.title) r.title = meta.title;
+      if (meta.synopsis) r.synopsis = meta.synopsis;
+      if (meta.totalPages != null && meta.totalPages > 0) r.totalPages = String(meta.totalPages);
+      next[rowIndex] = r;
+      pollDraftRows.value = next;
+    } catch (e) {
+      pollOlError.value = e instanceof Error ? e.message : "Lookup failed.";
+    }
+  }
+
+  async function submitCreateBookPoll() {
+    pollComposerError.value = "";
+    if (!session.value || !userCanManageActiveClub.value || !activeClubChannel.value) return;
+    if (latestOpenBookPoll.value) {
+      pollComposerError.value = "There is already an open poll. Close it before starting a new one.";
+      return;
+    }
+    const built = [];
+    for (const row of pollDraftRows.value) {
+      const title = String(row.title ?? "").trim();
+      if (!title) continue;
+      const isbn = normalizeIsbn(row.isbn ?? "");
+      const syn = String(row.synopsis ?? "").trim();
+      let totalPages = null;
+      const tp = parseInt(String(row.totalPages ?? "").trim(), 10);
+      if (Number.isFinite(tp) && tp > 0) totalPages = tp;
+      built.push({
+        id: crypto.randomUUID(),
+        title,
+        ...(isbn ? { isbn } : {}),
+        ...(Number.isFinite(totalPages) ? { totalPages } : {}),
+        ...(syn ? { synopsis: syn.slice(0, 5000) } : {}),
+      });
+    }
+    if (built.length < 2) {
+      pollComposerError.value = "Add at least two books with titles.";
+      return;
+    }
+    isPostingBookPoll.value = true;
+    try {
+      const pollId = crypto.randomUUID();
+      const endsAt = Date.now() + BOOK_POLL_DURATION_MS;
+      await graffiti.post(
+        {
+          value: {
+            type: "BookPoll",
+            pollId,
+            endsAt,
+            options: built,
+            published: Date.now(),
+          },
+          channels: [activeClubChannel.value],
+        },
+        session.value,
+      );
+      showBookPollComposer.value = false;
+      pollDraftRows.value = [
+        { title: "", isbn: "", synopsis: "", totalPages: "" },
+        { title: "", isbn: "", synopsis: "", totalPages: "" },
+      ];
+      pollOlQuery.value = "";
+      pollOlHits.value = [];
+    } catch (e) {
+      pollComposerError.value =
+        e instanceof Error ? e.message : "Poll could not be created.";
+    } finally {
+      isPostingBookPoll.value = false;
+    }
+  }
+
+  async function submitBookPollVote() {
+    pollVoteError.value = "";
+    const channel = activeClubChannel.value;
+    const poll = latestOpenBookPoll.value;
+    const optionId = pollVoteSelection.value.trim();
+    if (!session.value || !channel || !poll?.value?.pollId || !optionId) {
+      pollVoteError.value = "Choose a book to vote for.";
+      return;
+    }
+    if (!isMemberOfClub(channel)) {
+      pollVoteError.value = "You must be a member to vote.";
+      return;
+    }
+    if (!pollVotingOpen.value) {
+      pollVoteError.value = "Voting has ended for this poll.";
+      return;
+    }
+    const ids = new Set(activePollOptions.value.map((o) => o.id));
+    if (!ids.has(optionId)) {
+      pollVoteError.value = "That option is not part of this poll.";
+      return;
+    }
+    isSubmittingPollVote.value = true;
+    try {
+      await graffiti.post(
+        {
+          value: {
+            type: "BookPollVote",
+            pollId: poll.value.pollId,
+            optionId,
+            published: Date.now(),
+          },
+          channels: [channel],
+        },
+        session.value,
+      );
+    } catch (e) {
+      pollVoteError.value =
+        e instanceof Error ? e.message : "Could not record your vote.";
+    } finally {
+      isSubmittingPollVote.value = false;
+    }
+  }
+
+  async function applyPollWinnerAndCloseChannel(poll, winnerOptionId) {
+    if (!session.value || !userCanManageActiveClub.value || !activeClubChannel.value) {
+      throw new Error("Not allowed.");
+    }
+    const pid = poll?.value?.pollId;
+    if (!pid || closedPollIds.value.has(pid)) return;
+    const club = clubForActiveChat.value;
+    if (!club?.value) throw new Error("Club data not loaded.");
+    const v = club.value;
+    const optionById = new Map(
+      (Array.isArray(poll.value?.options) ? poll.value.options : []).map((o) => [o.id, o]),
+    );
+    const winnerTitle = String(optionById.get(winnerOptionId)?.title ?? "").trim();
+    if (!winnerTitle) throw new Error("Could not read the winning title.");
+    const name = String(v.name ?? "").trim();
+    if (!name) throw new Error("Club name missing.");
+    if (isClubNameTaken(name, v.channel)) {
+      throw new Error("Resolve the duplicate club name in settings before finalizing.");
+    }
+    await graffiti.post(
+      {
+        value: {
+          activity: "Update",
+          type: "BookClub",
+          channel: v.channel,
+          name,
+          ownerActor: activeClubOwnerActor.value,
+          nextMeetingAt: String(v.nextMeetingAt ?? "").trim(),
+          nextMeetingLocation: String(v.nextMeetingLocation ?? "").trim(),
+          allowedGenres: String(v.allowedGenres ?? "").trim(),
+          nextBook: winnerTitle,
+          published: Date.now(),
+        },
+        channels: [BOOK_CLUB_DIRECTORY],
+      },
+      session.value,
+    );
+    await graffiti.post(
+      {
+        value: {
+          type: "BookPollClosed",
+          pollId: pid,
+          winnerOptionId,
+          winnerTitle,
+          published: Date.now(),
+        },
+        channels: [activeClubChannel.value],
+      },
+      session.value,
+    );
+    tieBreakOptionId.value = "";
+  }
+
+  function resolvePollWinnerOptionId() {
+    const leaders = activePollLeaders.value;
+    if (leaders.optionIds.length === 1) return leaders.optionIds[0];
+    const pick = tieBreakOptionId.value.trim();
+    if (pick && leaders.optionIds.includes(pick)) return pick;
+    return "";
+  }
+
+  async function finalizeBookPoll() {
+    pollFinalizeError.value = "";
+    if (!session.value || !userCanManageActiveClub.value || !activeClubChannel.value) return;
+    const poll = latestOpenBookPoll.value;
+    if (!poll?.value?.pollId) {
+      pollFinalizeError.value = "No open poll.";
+      return;
+    }
+    if (closedPollIds.value.has(poll.value.pollId)) return;
+    const ends = activePollEndsAtMs.value;
+    const timeUp = ends != null && Date.now() >= ends;
+    const allIn = activePollAllMembersHaveVoted.value;
+    if (!timeUp && !allIn) {
+      pollFinalizeError.value =
+        "Voting is still open. Wait for the deadline or until every member has voted.";
+      return;
+    }
+    const winnerOptionId = resolvePollWinnerOptionId();
+    if (!winnerOptionId) {
+      pollFinalizeError.value = "Choose the winning book to break the tie.";
+      return;
+    }
+    isFinalizingPoll.value = true;
+    try {
+      await applyPollWinnerAndCloseChannel(poll, winnerOptionId);
+      pollAutoCloseLastId.value = poll.value.pollId;
+    } catch (e) {
+      pollFinalizeError.value =
+        e instanceof Error ? e.message : "Could not finalize this poll.";
+    } finally {
+      isFinalizingPoll.value = false;
+    }
+  }
+
+  watch(
+    () => [
+      session.value?.actor,
+      userCanManageActiveClub.value,
+      latestOpenBookPoll.value?.value?.pollId,
+      pollVotingOpen.value,
+      activePollHasTie.value,
+      activePollLeaders.value.optionIds.join("\u0000"),
+    ],
+    async () => {
+      if (!session.value || !userCanManageActiveClub.value) return;
+      const poll = latestOpenBookPoll.value;
+      const pid = poll?.value?.pollId;
+      if (!pid || closedPollIds.value.has(pid)) return;
+      if (pollVotingOpen.value) return;
+      if (activePollHasTie.value) return;
+      const leaders = activePollLeaders.value;
+      if (leaders.optionIds.length !== 1) return;
+      if (pollAutoCloseLastId.value === pid) return;
+      if (pollAutoClosingInFlight.value) return;
+      if (isFinalizingPoll.value) return;
+      pollAutoClosingInFlight.value = true;
+      isFinalizingPoll.value = true;
+      try {
+        await applyPollWinnerAndCloseChannel(poll, leaders.optionIds[0]);
+        pollAutoCloseLastId.value = pid;
+      } catch {
+        pollAutoCloseLastId.value = "";
+      } finally {
+        isFinalizingPoll.value = false;
+        pollAutoClosingInFlight.value = false;
+      }
+    },
+  );
+
+  function pollVoteCountFor(optionId) {
+    return activePollTally.value?.counts.get(optionId) ?? 0;
+  }
+
+  function getActivePollOptionTitle(optionId) {
+    return activePollOptions.value.find((o) => o.id === optionId)?.title ?? "";
+  }
+
   async function sendMessage() {
     const text = myMessage.value.trim();
     const channel = selectedMessageChannel.value;
@@ -1097,7 +1815,7 @@ export function useShelfTalk() {
         content: text,
         published: Date.now(),
       };
-      const book = contextBook.value.trim();
+      const book = markAsSpoiler.value ? contextBook.value.trim() : "";
       if (book) value.contextBook = book;
       if (markAsSpoiler.value) {
         value.isBlurred = true;
@@ -1125,6 +1843,7 @@ export function useShelfTalk() {
         session.value,
       );
       myMessage.value = "";
+      contextBook.value = "";
       spoilerWarning.value = "";
       spoilerPage.value = "";
       spoilerProgressPercent.value = "";
@@ -1366,6 +2085,44 @@ export function useShelfTalk() {
     toggleClubSettingsEditor,
     saveActiveClubSettings,
     deleteActiveClub,
+    latestOpenBookPoll,
+    pollVotingOpen,
+    activePollEndsAtMs,
+    activePollAllMembersHaveVoted,
+    activeClubPollMemberCount,
+    activePollVoteTurnout,
+    activePollOptions,
+    activePollLeaders,
+    activePollHasTie,
+    myActivePollVoteOptionId,
+    pollVoteSelection,
+    activePollPreviewOption,
+    activePollAwaitingOwnerFinalize,
+    activePollWaitingForOwnerFinalize,
+    showBookPollComposer,
+    pollComposerError,
+    isPostingBookPoll,
+    pollDraftRows,
+    pollOlQuery,
+    pollOlHits,
+    pollOlSearching,
+    pollOlError,
+    pollOlTargetRow,
+    pollVoteError,
+    isSubmittingPollVote,
+    pollFinalizeError,
+    isFinalizingPoll,
+    tieBreakOptionId,
+    addPollDraftRow,
+    removePollDraftRow,
+    runPollOpenLibrarySearch,
+    applyPollOpenLibraryHit,
+    enrichPollRowFromIsbn,
+    submitCreateBookPoll,
+    submitBookPollVote,
+    finalizeBookPoll,
+    pollVoteCountFor,
+    getActivePollOptionTitle,
     sortedMessages,
     isMessageThreadLoading,
     messageViewportRef,
